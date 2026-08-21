@@ -1,0 +1,1 @@
+<script setup lang="ts">definePageMeta({middleware:"admin"});</script><template><NuxtLink class="admin-back" to="/dashboard/administracao">← Voltar à administração</NuxtLink><header class="module-page-title"><p class="eyebrow">Administração</p><h1>Configurações</h1><p>Metas, prazos e listas de exclusão.</p></header><SettingsManager/></template>

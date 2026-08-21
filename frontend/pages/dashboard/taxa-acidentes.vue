@@ -1,0 +1,2 @@
+<script setup lang="ts">definePageMeta({middleware:"auth"});const auth=useAuthStore();</script>
+<template><ModuleWorkspace eyebrow="Planejamento · Segurança" title="Taxa de Acidentes" description="Painel de acompanhamento dos indicadores de segurança do trabalho." :has-administration="auth.user?.role !== 'VIEWER'"><template #panel><PublishedPanel module="taxa-acidentes" title="Taxa de Acidentes"/></template><template #administration><AccidentRateAdmin :can-publish="auth.isAdmin" :can-clear="auth.isAdmin"/></template></ModuleWorkspace></template>

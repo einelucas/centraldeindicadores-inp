@@ -1,0 +1,2 @@
+<script setup lang="ts">definePageMeta({middleware:"auth"});const auth=useAuthStore();</script>
+<template><ModuleWorkspace eyebrow="Planejamento · RNC" title="Não Conformidades" description="Painel de acompanhamento das RNCs e do tempo de tratativa por unidade." :has-administration="auth.user?.role !== 'VIEWER'"><template #panel><PublishedPanel module="rnc" title="RNC — Prazo de Tratativa"/></template><template #administration><IndicatorAdmin module="rnc" :can-publish="auth.isAdmin" :can-clear="auth.isAdmin"/></template></ModuleWorkspace></template>

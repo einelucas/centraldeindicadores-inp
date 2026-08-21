@@ -1,0 +1,2 @@
+<script setup lang="ts">definePageMeta({middleware:"auth"});const auth=useAuthStore();</script>
+<template><ModuleWorkspace eyebrow="Planejamento · PMO Obras & Melhorias" title="Indicadores de Obra" description="Dashboard para visualização de indicadores de obras e melhorias." panel-label="Painel Geral" :has-administration="auth.user?.role !== 'VIEWER'"><template #panel><DashboardOverview/></template><template #administration><ScorecardAdmin :can-clear="auth.isAdmin"/></template></ModuleWorkspace></template>

@@ -1,0 +1,1 @@
+<script setup lang="ts">definePageMeta({middleware:"admin"});</script><template><NuxtLink class="admin-back" to="/dashboard/administracao">← Voltar à administração</NuxtLink><header class="module-page-title"><p class="eyebrow">Administração</p><h1>Importações</h1><p>Histórico dos jobs, lotes e registros rejeitados.</p></header><ImportHistory/></template>
