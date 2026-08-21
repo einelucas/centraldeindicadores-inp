@@ -1,0 +1,2 @@
+<script setup lang="ts">definePageMeta({middleware:"auth"});const auth=useAuthStore();</script>
+<template><ModuleWorkspace eyebrow="Planejamento · IDP" title="Aderência do Cronograma" description="Painel de execução física do cronograma por RSO, unidade e disciplina." :has-administration="auth.user?.role !== 'VIEWER'"><template #panel><PublishedPanel module="idp" title="IDP — Aderência do Cronograma"/></template><template #administration><IndicatorAdmin module="idp" :can-publish="auth.isAdmin" :can-clear="auth.isAdmin"/></template></ModuleWorkspace></template>

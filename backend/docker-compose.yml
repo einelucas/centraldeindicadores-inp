@@ -1,0 +1,44 @@
+# Ambiente LOCAL de desenvolvimento do backend apenas. Não usar em produção.
+# Mesma convenção de credenciais triviais do docker-compose.yml da raiz
+# (Next.js) — uso estritamente local.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: central-indicadores-backend-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: central
+      POSTGRES_PASSWORD: central
+      POSTGRES_DB: central_backend
+    ports:
+      - "5433:5432"
+    volumes:
+      - central_backend_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U central"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: central-indicadores-backend-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql://central:central@postgres:5432/central_backend
+      MIGRATION_DATABASE_URL: postgresql://central:central@postgres:5432/central_backend
+      ALLOW_TEST_DB_MIGRATIONS: "true"
+      CORS_ORIGINS: http://localhost:3000
+      DEV_AUTH_ENABLED: "true"
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+
+volumes:
+  central_backend_pgdata:

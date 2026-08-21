@@ -1,0 +1,2 @@
+<script setup lang="ts">definePageMeta({middleware:"auth"});const auth=useAuthStore();</script>
+<template><ModuleWorkspace eyebrow="Planejamento · RDO" title="Aprovação de RDO" description="Painel de aprovação dos Relatórios Diários de Obra por unidade e mês." :has-administration="auth.user?.role !== 'VIEWER'"><template #panel><PublishedPanel module="rdo" title="Aprovação de RDO"/></template><template #administration><IndicatorAdmin module="rdo" :can-publish="auth.isAdmin" :can-clear="auth.isAdmin"/></template></ModuleWorkspace></template>

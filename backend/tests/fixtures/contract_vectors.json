@@ -1,0 +1,640 @@
+{
+  "businessKey": [
+    {
+      "input": {
+        "module": "RDO",
+        "parts": [
+          "R1",
+          "2026-01-05",
+          "UNIDADE A",
+          "Civil",
+          ""
+        ]
+      },
+      "output": "RDO:a9feff05f04798c3ae552bb0058592f502004b59b69c697f861fcda6ac5fbace"
+    },
+    {
+      "input": {
+        "module": "RDO",
+        "parts": [
+          "R1",
+          "2026-01-05",
+          "UNIDADE A",
+          "Mecânica",
+          ""
+        ]
+      },
+      "output": "RDO:3ac77d3f16678e003c18d1c4c72b250813f832bd2448bb710946fa1b932ca70a"
+    },
+    {
+      "input": {
+        "module": "RNC",
+        "parts": [
+          "Rio Verde",
+          "2026-03-10",
+          "Ofensor X"
+        ]
+      },
+      "output": "RNC:e3315e7c7c1e64d9039241c5b5cb2b05e1fb03db912c9ea959be8041b4a9a42d"
+    },
+    {
+      "input": {
+        "module": "IDP",
+        "parts": [
+          "  rio verde  ",
+          "12",
+          "2027",
+          "3"
+        ]
+      },
+      "output": "IDP:d239f05e2b4007b8cd5bbc59658e86dee544e9dfcb5b1a56ab9f97d29970546e"
+    },
+    {
+      "input": {
+        "module": "CINCO-S",
+        "parts": [
+          "SDR",
+          "2027",
+          "5"
+        ]
+      },
+      "output": "CINCO-S:4a90c88ccf481c9d1deb71a449addadd17cd25d2b9a30683cdd84de2107ebccf"
+    },
+    {
+      "input": {
+        "module": "TESTMOD",
+        "parts": [
+          null,
+          null,
+          "  a   b  ",
+          "ção",
+          42
+        ]
+      },
+      "output": "TESTMOD:dae8c8b27a170595cb0fbe03a458d3f3f53c378ca793aebdba96ed6fcb16b269"
+    }
+  ],
+  "buildKeyString": [
+    {
+      "input": [
+        "R1",
+        "2026-01-05",
+        "UNIDADE A",
+        "Civil",
+        ""
+      ],
+      "output": "R1|2026-01-05|UNIDADE A|CIVIL|"
+    },
+    {
+      "input": [
+        "R1",
+        "2026-01-05",
+        "UNIDADE A",
+        "Mecânica",
+        ""
+      ],
+      "output": "R1|2026-01-05|UNIDADE A|MECÂNICA|"
+    },
+    {
+      "input": [
+        "Rio Verde",
+        "2026-03-10",
+        "Ofensor X"
+      ],
+      "output": "RIO VERDE|2026-03-10|OFENSOR X"
+    },
+    {
+      "input": [
+        "  rio verde  ",
+        "12",
+        "2027",
+        "3"
+      ],
+      "output": "RIO VERDE|12|2027|3"
+    },
+    {
+      "input": [
+        "SDR",
+        "2027",
+        "5"
+      ],
+      "output": "SDR|2027|5"
+    },
+    {
+      "input": [
+        null,
+        null,
+        "  a   b  ",
+        "ção",
+        42
+      ],
+      "output": "||A B|ÇÃO|42"
+    }
+  ],
+  "sha256": [
+    {
+      "input": "hello world",
+      "output": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+    },
+    {
+      "input": "",
+      "output": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "input": "RDO:R1|2026-01-05|UNIDADE A|CIVIL|",
+      "output": "81e8c955d738157f31ded8540ff44aa4cd5e2ea196e024caa1a588083592edba"
+    }
+  ],
+  "contentHash": [
+    {
+      "input": {
+        "statusDescricao": "Aprovado",
+        "responsavel": "",
+        "observacao": ""
+      },
+      "output": "34072e72d6ea9e94a4fe940cba96b8924914e61157265b4d7d1b4be63f6e1e2a"
+    },
+    {
+      "input": {
+        "statusDescricao": "Preenchendo Relatório",
+        "responsavel": "João",
+        "observacao": "obs"
+      },
+      "output": "fbdaa7894dc89a70d0b85ee3bf0c9eca62b5e338a8b3336170ffae1d87920c65"
+    },
+    {
+      "input": {
+        "b": "2",
+        "a": "1",
+        "c": "3"
+      },
+      "output": "198e0d72f24234966ffd7075ad7b7e00ddf013d6ac170f0e4becfdc8389c5c61"
+    }
+  ],
+  "normalizeForKey": [
+    {
+      "input": "  Rio Verde  ",
+      "output": "RIO VERDE"
+    },
+    {
+      "input": "SÃO PAULO",
+      "output": "SÃO PAULO"
+    },
+    {
+      "input": null,
+      "output": ""
+    },
+    {
+      "input": null,
+      "output": ""
+    },
+    {
+      "input": 42,
+      "output": "42"
+    },
+    {
+      "input": "  múltiplos   espaços  ",
+      "output": "MÚLTIPLOS ESPAÇOS"
+    }
+  ],
+  "normalizeForMatch": [
+    {
+      "input": "Rio Verde",
+      "output": "RIO VERDE"
+    },
+    {
+      "input": "São Paulo - SP",
+      "output": "SAO PAULO SP"
+    },
+    {
+      "input": "  Rondonópolis  ",
+      "output": "RONDONOPOLIS"
+    },
+    {
+      "input": "INPASA Sinop",
+      "output": "INPASA SINOP"
+    }
+  ],
+  "collapseSpaces": [
+    {
+      "input": "  a    b   c  ",
+      "output": "a b c"
+    },
+    {
+      "input": "no-change",
+      "output": "no-change"
+    },
+    {
+      "input": "\t\ttabs\t\t",
+      "output": "tabs"
+    }
+  ],
+  "normHeader": [
+    {
+      "input": "Data Referência",
+      "output": "data_referência"
+    },
+    {
+      "input": " STATUS_DESCRICAO ",
+      "output": "status_descricao"
+    },
+    {
+      "input": "Empresa Nome",
+      "output": "empresa_nome"
+    }
+  ],
+  "nullIfEmpty": [
+    {
+      "input": "",
+      "output": null
+    },
+    {
+      "input": "-",
+      "output": null
+    },
+    {
+      "input": null,
+      "output": null
+    },
+    {
+      "input": null,
+      "output": null
+    },
+    {
+      "input": "  ",
+      "output": null
+    },
+    {
+      "input": "value",
+      "output": "value"
+    },
+    {
+      "input": " value ",
+      "output": "value"
+    }
+  ],
+  "toIsoDateKey": [
+    {
+      "input": "05/01/2026",
+      "output": "2026-01-05"
+    },
+    {
+      "input": "2026-01-05",
+      "output": "2026-01-05"
+    },
+    {
+      "input": "15/03/2027",
+      "output": "2027-03-15"
+    },
+    {
+      "input": "2027-12-31",
+      "output": "2027-12-31"
+    },
+    {
+      "input": "not-a-date",
+      "output": ""
+    }
+  ],
+  "parseFlexDateValid": [
+    {
+      "input": "05/01/2026",
+      "output": {
+        "y": 2026,
+        "m": 1,
+        "d": 5
+      }
+    },
+    {
+      "input": "2026-01-05",
+      "output": {
+        "y": 2026,
+        "m": 1,
+        "d": 5
+      }
+    },
+    {
+      "input": "15/03/2027",
+      "output": {
+        "y": 2027,
+        "m": 3,
+        "d": 15
+      }
+    },
+    {
+      "input": "2027-12-31",
+      "output": {
+        "y": 2027,
+        "m": 12,
+        "d": 31
+      }
+    }
+  ],
+  "excelSerialToDate": [
+    {
+      "input": 46023,
+      "output": {
+        "y": 2026,
+        "m": 1,
+        "d": 1
+      }
+    },
+    {
+      "input": 1,
+      "output": {
+        "y": 1899,
+        "m": 12,
+        "d": 31
+      }
+    },
+    {
+      "input": 45658.5,
+      "output": {
+        "y": 2025,
+        "m": 1,
+        "d": 1
+      }
+    }
+  ],
+  "fmtDateBR": [
+    {
+      "input": "05/01/2026",
+      "output": "05/01/2026"
+    },
+    {
+      "input": "2026-01-05",
+      "output": "05/01/2026"
+    },
+    {
+      "input": "15/03/2027",
+      "output": "15/03/2027"
+    },
+    {
+      "input": "2027-12-31",
+      "output": "31/12/2027"
+    },
+    {
+      "input": "not-a-date",
+      "output": "—"
+    }
+  ],
+  "getOperationalPeriod": [
+    {
+      "input": {
+        "year": 2026,
+        "month": 12
+      },
+      "output": {
+        "periodYear": 2027,
+        "semester": "S1"
+      }
+    },
+    {
+      "input": {
+        "year": 2027,
+        "month": 1
+      },
+      "output": {
+        "periodYear": 2027,
+        "semester": "S1"
+      }
+    },
+    {
+      "input": {
+        "year": 2027,
+        "month": 5
+      },
+      "output": {
+        "periodYear": 2027,
+        "semester": "S1"
+      }
+    },
+    {
+      "input": {
+        "year": 2027,
+        "month": 6
+      },
+      "output": {
+        "periodYear": 2027,
+        "semester": "S2"
+      }
+    },
+    {
+      "input": {
+        "year": 2027,
+        "month": 11
+      },
+      "output": {
+        "periodYear": 2027,
+        "semester": "S2"
+      }
+    },
+    {
+      "input": {
+        "year": 2026,
+        "month": 6
+      },
+      "output": {
+        "periodYear": 2026,
+        "semester": "S2"
+      }
+    }
+  ],
+  "cycleFromYearSemester": [
+    {
+      "input": {
+        "year": 2027,
+        "semester": "S1"
+      },
+      "output": {
+        "startYear": 2026,
+        "startMonth": 12,
+        "endYear": 2027,
+        "endMonth": 5
+      }
+    },
+    {
+      "input": {
+        "year": 2027,
+        "semester": "S2"
+      },
+      "output": {
+        "startYear": 2027,
+        "startMonth": 6,
+        "endYear": 2027,
+        "endMonth": 11
+      }
+    },
+    {
+      "input": {
+        "year": 2026,
+        "semester": "S1"
+      },
+      "output": {
+        "startYear": 2025,
+        "startMonth": 12,
+        "endYear": 2026,
+        "endMonth": 5
+      }
+    }
+  ],
+  "cycleForMonth": [
+    {
+      "input": {
+        "year": 2026,
+        "month": 12
+      },
+      "output": {
+        "startYear": 2026,
+        "startMonth": 12,
+        "endYear": 2027,
+        "endMonth": 5
+      }
+    },
+    {
+      "input": {
+        "year": 2027,
+        "month": 1
+      },
+      "output": {
+        "startYear": 2026,
+        "startMonth": 12,
+        "endYear": 2027,
+        "endMonth": 5
+      }
+    },
+    {
+      "input": {
+        "year": 2027,
+        "month": 5
+      },
+      "output": {
+        "startYear": 2026,
+        "startMonth": 12,
+        "endYear": 2027,
+        "endMonth": 5
+      }
+    },
+    {
+      "input": {
+        "year": 2027,
+        "month": 6
+      },
+      "output": {
+        "startYear": 2027,
+        "startMonth": 6,
+        "endYear": 2027,
+        "endMonth": 11
+      }
+    },
+    {
+      "input": {
+        "year": 2027,
+        "month": 11
+      },
+      "output": {
+        "startYear": 2027,
+        "startMonth": 6,
+        "endYear": 2027,
+        "endMonth": 11
+      }
+    },
+    {
+      "input": {
+        "year": 2026,
+        "month": 6
+      },
+      "output": {
+        "startYear": 2026,
+        "startMonth": 6,
+        "endYear": 2026,
+        "endMonth": 11
+      }
+    }
+  ],
+  "normalizePeriodRange": [
+    {
+      "input": {
+        "startYear": 2027,
+        "startMonth": 5,
+        "endYear": 2026,
+        "endMonth": 12
+      },
+      "output": {
+        "startYear": 2026,
+        "startMonth": 12,
+        "endYear": 2027,
+        "endMonth": 5
+      }
+    },
+    {
+      "input": {
+        "startYear": 2026,
+        "startMonth": 12,
+        "endYear": 2027,
+        "endMonth": 5
+      },
+      "output": {
+        "startYear": 2026,
+        "startMonth": 12,
+        "endYear": 2027,
+        "endMonth": 5
+      }
+    }
+  ],
+  "isWithinPeriodRange": [
+    {
+      "input": {
+        "year": 2027,
+        "month": 3,
+        "range": {
+          "startYear": 2026,
+          "startMonth": 12,
+          "endYear": 2027,
+          "endMonth": 5
+        }
+      },
+      "output": true
+    },
+    {
+      "input": {
+        "year": 2027,
+        "month": 6,
+        "range": {
+          "startYear": 2026,
+          "startMonth": 12,
+          "endYear": 2027,
+          "endMonth": 5
+        }
+      },
+      "output": false
+    },
+    {
+      "input": {
+        "year": 2026,
+        "month": 12,
+        "range": {
+          "startYear": 2026,
+          "startMonth": 12,
+          "endYear": 2027,
+          "endMonth": 5
+        }
+      },
+      "output": true
+    }
+  ],
+  "formatPeriodRangeLabel": [
+    {
+      "input": {
+        "startYear": 2026,
+        "startMonth": 12,
+        "endYear": 2027,
+        "endMonth": 5
+      },
+      "output": "Dez/2026 – Mai/2027"
+    },
+    {
+      "input": null,
+      "output": "Tudo"
+    }
+  ]
+}
