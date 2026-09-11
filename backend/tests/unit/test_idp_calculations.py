@@ -18,6 +18,8 @@ import pytest
 from app.modules.idp.calculations import (
     calculate_idp_adherence,
     compute_idp_result,
+    is_idp_discipline_excluded,
+    normalize_idp_discipline_name,
     records_in_competence,
     select_latest_rso_by_unit,
 )
@@ -56,11 +58,24 @@ def test_aderencia_realizado_sobre_previsto() -> None:
     assert result == pytest.approx(54.79 / 53.08)
 
 
-def test_baseline_zero_retorna_none_nao_zero() -> None:
-    """Divergência aplicada (regra do prompt de migração, hierarquia nível
-    1): previsto==0 retorna None, não 0 como o HEAD original."""
-    assert calculate_idp_adherence(10.0, 0.0) is None
-    assert calculate_idp_adherence(0.0, 0.0) is None
+def test_baseline_zero_retorna_zero() -> None:
+    """Paridade com o TS original: previsto==0 (ou não finito) retorna 0.0,
+    não None — ver docs/backend-migration-decisions.md §4.2.1."""
+    assert calculate_idp_adherence(10.0, 0.0) == 0.0
+    assert calculate_idp_adherence(0.0, 0.0) == 0.0
+
+
+def test_normaliza_caixa_acentos_espacos_hifens_e_sublinhados() -> None:
+    """Porte de `tests/unit/idp-configuration.test.ts` — casos de
+    normalização de nome de disciplina não cobertos por outro teste."""
+    assert normalize_idp_discipline_name(" 09 _ PROJÉTOS ") == "09 projetos"
+    assert normalize_idp_discipline_name("10---Fornecimentos") == "10 fornecimentos"
+
+
+def test_is_idp_discipline_excluded_identifica_variacoes() -> None:
+    excluded = ["09 _ Projetos", "10 _ Fornecimentos"]
+    assert is_idp_discipline_excluded("09-Projetos", excluded) is True
+    assert is_idp_discipline_excluded("01 - Civil", excluded) is False
 
 
 def test_seleciona_o_maior_rso_da_mesma_unidade_e_competencia() -> None:
@@ -99,9 +114,11 @@ def test_mantem_versoes_semanais_no_historico_mas_calcula_apenas_a_maior_versao(
     result = compute_idp_result(entries, 0.9, [], [], period)
 
     assert result.active_documents == 2  # 2 unidades, não 3 registros
-    nova_mutum = next(u for u in result.unit_rows if u.unit == "Nova Mutum")
+    # `IdpUnitRow.unit` é sempre o nome completo canônico (nunca a sigla nem
+    # o texto bruto do PDF) — ver app/shared/units.py::format_unit_label.
+    nova_mutum = next(u for u in result.unit_rows if u.unit == "NOVA MUTUM")
     assert nova_mutum.rso_numero == 34  # não 32
-    rio_verde = next(u for u in result.unit_rows if u.unit == "Rio Verde")
+    rio_verde = next(u for u in result.unit_rows if u.unit == "RIO VERDE")
     assert rio_verde.n_fases == 2
 
 
@@ -125,3 +142,52 @@ def test_unidade_excluida_fica_fora_da_aderencia_geral_mas_aparece_em_unit_rows(
     unit_row = result.unit_rows[0]
     assert unit_row.excluded is True
     assert unit_row.aderencia == pytest.approx(0.2)  # ainda calculado, só não entra no geral
+
+
+def test_unit_row_exposes_discipline_area_breakdown_for_unit_detail() -> None:
+    """`unit_rows[].disciplines` alimenta o "Detalhamento por unidade" do
+    painel administrativo (unidade -> disciplina -> área)."""
+    entries = [_record(unit="Nova Mutum", civil_prev=100, civil_real=99.5)]
+    result = compute_idp_result(
+        entries, 0.9, [], [],
+        PeriodRange(start_year=2026, start_month=6, end_year=2026, end_month=6),
+    )
+    unit_row = result.unit_rows[0]
+    assert len(unit_row.disciplines) == 1
+    civil = unit_row.disciplines[0]
+    assert civil.disciplina == "01 - Civil"
+    assert civil.areas == [IdpAreaEntry(area="Pipe Rack", prev_acum=100, real_acum=99.5)]
+    assert civil.aderencia == pytest.approx(0.995)
+    # Disciplinas sem nenhuma área reconhecida no RSO não aparecem no detalhamento.
+    assert all(d.disciplina != "02 - Mecânica" for d in unit_row.disciplines)
+
+
+def test_discipline_row_exposes_unit_groups_for_discipline_detail() -> None:
+    """`discipline_rows[].unit_groups` alimenta a expansão de "Aderência por
+    disciplina" (disciplina -> unidade -> área)."""
+    entries = [
+        _record(unit="Nova Mutum", civil_prev=100, civil_real=99.5),
+        _record(unit="Rio Verde", civil_prev=80, civil_real=40),
+    ]
+    result = compute_idp_result(
+        entries, 0.9, [], [],
+        PeriodRange(start_year=2026, start_month=6, end_year=2026, end_month=6),
+    )
+    civil_row = next(r for r in result.discipline_rows if r.disciplina == "01 - Civil")
+    assert {g.unit for g in civil_row.unit_groups} == {"NOVA MUTUM", "RIO VERDE"}
+    rio_verde_group = next(g for g in civil_row.unit_groups if g.unit == "RIO VERDE")
+    assert rio_verde_group.aderencia == pytest.approx(0.5)
+    assert rio_verde_group.entries == [IdpAreaEntry(area="Pipe Rack", prev_acum=80, real_acum=40)]
+
+
+def test_excluded_unit_keeps_own_unit_detail_but_drops_out_of_discipline_unit_groups() -> None:
+    entries = [_record(unit="Ignorada", civil_prev=100, civil_real=50)]
+    result = compute_idp_result(
+        entries, 0.9, [], ["Ignorada"],
+        PeriodRange(start_year=2026, start_month=6, end_year=2026, end_month=6),
+    )
+    unit_row = result.unit_rows[0]
+    assert unit_row.excluded is True
+    assert len(unit_row.disciplines) == 1  # continua detalhado no histórico da própria unidade
+    civil_row = next(r for r in result.discipline_rows if r.disciplina == "01 - Civil")
+    assert civil_row.unit_groups == []  # unidade excluída não entra na agregação por disciplina

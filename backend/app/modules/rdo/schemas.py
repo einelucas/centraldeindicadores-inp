@@ -49,6 +49,7 @@ class PeriodRangeOut(CamelModel):
 
 class RdoUnitAggregateOut(CamelModel):
     name: str
+    code: str
     emitidos: int
     aprovados: int
     aderencia: float

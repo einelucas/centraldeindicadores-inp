@@ -18,14 +18,16 @@ class ScorecardRowOut(CamelModel):
     key: str
     label: str
     peso: float
-    meta: float
-    direction: str
-    unit: str
+    meta: float | None
+    direction: str | None
+    unit: str | None
     value: float | None
     passed: bool = Field(alias="pass")
     pontos: float
     pontos_possiveis: float
     has_value: bool
+    status: str
+    scoring_enabled: bool
 
 
 class ScorecardResultOut(CamelModel):
@@ -34,6 +36,9 @@ class ScorecardResultOut(CamelModel):
     total_peso: float
     pontos_possiveis_mes: float
     atendimento_mes: float
+    pontos_oficiais_mes: float
+    pontos_reservados_mes: float
+    cobertura_ativa_pct: float
 
 
 class ScorecardComputationOut(CamelModel):

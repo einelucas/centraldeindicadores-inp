@@ -7,7 +7,9 @@ rdo/idp/rnc/cinco_s no import de seus respectivos `router.py`.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+import time
+
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +21,7 @@ from app.core.permissions import Permission
 from app.models.imports import ImportBatch, ImportJob
 from app.models.imports import ImportError as ImportErrorRow
 from app.modules.imports import service
+from app.modules.imports.parsers.signatures import extension_of
 from app.modules.imports.registry import get_module_definition
 from app.modules.imports.schemas import (
     BatchErrorOut,
@@ -32,9 +35,22 @@ from app.modules.imports.schemas import (
     ImportJobOut,
     StartImportIn,
     StartImportOut,
+    UploadFileResultOut,
+    UploadImportOut,
+    UploadRowErrorOut,
 )
 
 router = APIRouter(prefix="/importacoes", tags=["importacoes"])
+
+_ACCEPTED_EXTENSIONS = {"xlsx", "xls", "xlsm", "xlsb", "xltx", "xlt", "csv", "pdf"}
+
+
+def _sanitize_filename(filename: str) -> str:
+    """Remove componentes de caminho e caracteres de controle — nunca confia
+    no nome enviado pelo cliente para nada além de exibição/extensão."""
+    name = filename.replace("\\", "/").rsplit("/", 1)[-1]
+    name = "".join(ch for ch in name if ch.isprintable()).strip()
+    return (name or "arquivo")[:255]
 
 
 @router.post("/iniciar", response_model=StartImportOut)
@@ -56,6 +72,88 @@ async def iniciar(
         user_id=current_user.id,
     )
     return StartImportOut(import_job_id=job.id, status=job.status.value)
+
+
+@router.post("/{modulo}/arquivos", response_model=UploadImportOut)
+async def importar_arquivos(
+    modulo: str,
+    files: list[UploadFile] = File(...),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    session: AsyncSession = Depends(get_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.IMPORT_RUN)),
+) -> UploadImportOut:
+    """Endpoint único de upload — recebe os arquivos originais e faz todo o
+    ciclo (parse, normalização, dedup, bulk upsert, recálculo) no servidor.
+    Substitui, para os módulos já migrados, o fluxo antigo em 3 chamadas
+    (`iniciar` -> `lotes` -> `finalizar`)."""
+    definition = get_module_definition(modulo)
+    if definition is None:
+        raise DomainError(f"Módulo '{modulo}' não está ativo para importação.")
+    if definition.file_import is None:
+        raise HTTPException(
+            status_code=501, detail=f"Módulo '{modulo}' ainda não aceita upload direto de arquivos."
+        )
+
+    settings = get_settings()
+    if not files:
+        raise DomainError("Selecione ao menos um arquivo.")
+    if len(files) > settings.max_import_files:
+        raise DomainError(f"Envie no máximo {settings.max_import_files} arquivos por importação.")
+
+    payloads: list[tuple[str, bytes]] = []
+    total_size = 0
+    for upload in files:
+        filename = _sanitize_filename(upload.filename or "arquivo")
+        extension = extension_of(filename)
+        if extension not in _ACCEPTED_EXTENSIONS:
+            raise DomainError(f"'{filename}': extensão .{extension or '(nenhuma)'} não é aceita.")
+
+        content = await upload.read()
+        if len(content) > settings.max_import_file_size_bytes:
+            limit_mb = settings.max_import_file_size_bytes / (1024 * 1024)
+            raise DomainError(f"'{filename}' excede o limite de {limit_mb:.0f} MB por arquivo.")
+        total_size += len(content)
+        if total_size > settings.max_import_total_size_bytes:
+            limit_mb = settings.max_import_total_size_bytes / (1024 * 1024)
+            raise DomainError(f"O total dos arquivos excede o limite de {limit_mb:.0f} MB por envio.")
+
+        payloads.append((filename, content))
+
+    started_at = time.monotonic()
+    job, outcome = await service.run_file_import(
+        session,
+        module=modulo,
+        files=payloads,
+        user_id=current_user.id,
+        idempotency_key=idempotency_key,
+        file_import=definition.file_import,
+    )
+    duration_ms = int((time.monotonic() - started_at) * 1000)
+
+    return UploadImportOut(
+        import_job_id=job.id,
+        status=job.status.value,
+        totals=FinalizeTotalsOut(
+            found=job.totalFound,
+            inserted=job.totalInserted,
+            ignored=job.totalIgnored,
+            updated=job.totalUpdated,
+            rejected=job.totalRejected,
+        ),
+        files=[
+            UploadFileResultOut(
+                file_name=f.file_name,
+                found=f.found,
+                accepted=f.accepted,
+                rejected=f.rejected,
+                errors=[
+                    UploadRowErrorOut(row=e.row, field=e.field, message=e.message) for e in f.errors
+                ],
+            )
+            for f in outcome.files
+        ],
+        duration_ms=duration_ms,
+    )
 
 
 @router.post("/{job_id}/lotes", response_model=BatchOut)

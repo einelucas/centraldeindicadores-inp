@@ -19,15 +19,17 @@ from app.models.common import utcnow
 from app.modules.idp.types import (
     IDP_DISC_NAMES,
     IdpDisciplineRow,
+    IdpDisciplineUnitGroup,
     IdpMonthAggregate,
     IdpNormalizedRecord,
     IdpResult,
+    IdpUnitDisciplineDetail,
     IdpUnitRow,
 )
 from app.shared.dates import MONTH_NAMES_FULL
 from app.shared.normalization import collapse_spaces
 from app.shared.period import PeriodRange, enumerate_period_months, is_within_period_range
-from app.shared.units import normalize_unit_code
+from app.shared.units import format_unit_label, normalize_unit_code
 
 __all__ = [
     "average_ignoring_none",
@@ -44,16 +46,15 @@ _COMBINING_MARKS_RE = re.compile(r"[̀-ͯ]")
 _UNDERSCORE_DASH_RE = re.compile(r"[_–—-]+")
 
 
-def calculate_idp_adherence(real: float, previsto: float) -> float | None:
+def calculate_idp_adherence(real: float, previsto: float) -> float:
     """Aderência = realizado acumulado / previsto (linha de base) acumulado.
 
-    **Divergência aplicada** (fonte 1 da hierarquia — regra explícita do
-    prompt de migração, que tem precedência sobre o comportamento do `HEAD`):
-    `previsto == 0` (ou não finito) retorna `None` (ausência de resultado
-    válido), NÃO `0`. O TS original retorna `0` neste caso — ver
-    `docs/backend-migration-decisions.md` §4.2.1."""
+    Paridade com `src/features/idp/calculations/index.ts`: `previsto == 0`
+    (ou não finito) retorna `0`, não `None` — ver
+    `docs/backend-migration-decisions.md` §4.2.1 (decisão revertida para
+    manter paridade com o legado)."""
     if not math.isfinite(previsto) or previsto == 0:
-        return None
+        return 0.0
     numerator = real if math.isfinite(real) else 0.0
     return numerator / previsto
 
@@ -137,6 +138,29 @@ def select_latest_rso_by_unit(entries: list[IdpNormalizedRecord]) -> list[IdpNor
     return sorted(latest_by_unit.values(), key=lambda e: e.unit)
 
 
+def _build_unit_disciplines(entry: IdpNormalizedRecord) -> list[IdpUnitDisciplineDetail]:
+    """Detalhamento por disciplina/área do RSO vencedor — só inclui
+    disciplinas com ao menos uma área reconhecida (mesmo critério do
+    "Nenhuma disciplina reconhecida" do painel administrativo)."""
+    details: list[IdpUnitDisciplineDetail] = []
+    for disciplina in IDP_DISC_NAMES:
+        areas = entry.disc_data.get(disciplina, [])
+        if not areas:
+            continue
+        prev_avg = _mean_or_none([a.prev_acum for a in areas]) or 0.0
+        real_avg = _mean_or_none([a.real_acum for a in areas]) or 0.0
+        details.append(
+            IdpUnitDisciplineDetail(
+                disciplina=disciplina,
+                prev_avg=prev_avg,
+                real_avg=real_avg,
+                aderencia=calculate_idp_adherence(real_avg, prev_avg),
+                areas=list(areas),
+            )
+        )
+    return details
+
+
 def _to_unit_row(entry: IdpNormalizedRecord, exclude_unit_set: set[str]) -> IdpUnitRow:
     prev_values = [p.prev_acum for p in entry.execucao_fases]
     real_values = [p.real_acum for p in entry.execucao_fases]
@@ -146,7 +170,7 @@ def _to_unit_row(entry: IdpNormalizedRecord, exclude_unit_set: set[str]) -> IdpU
 
     return IdpUnitRow(
         source_id=entry.id,
-        unit=entry.unit,
+        unit=format_unit_label(entry.unit),
         rso_numero=entry.rso_numero,
         reference_year=entry.reference_year,
         reference_month=entry.reference_month,
@@ -163,7 +187,30 @@ def _to_unit_row(entry: IdpNormalizedRecord, exclude_unit_set: set[str]) -> IdpU
         aderencia=aderencia,
         excluded=normalize_unit_code(entry.unit) in exclude_unit_set,
         phases=list(entry.execucao_fases),
+        disciplines=_build_unit_disciplines(entry),
     )
+
+
+def _build_discipline_unit_groups(
+    included_winners: list[IdpNormalizedRecord], disciplina: str
+) -> list[IdpDisciplineUnitGroup]:
+    groups: list[IdpDisciplineUnitGroup] = []
+    for entry in included_winners:
+        areas = entry.disc_data.get(disciplina, [])
+        if not areas:
+            continue
+        prev_avg = _mean_or_none([a.prev_acum for a in areas]) or 0.0
+        real_avg = _mean_or_none([a.real_acum for a in areas]) or 0.0
+        groups.append(
+            IdpDisciplineUnitGroup(
+                unit=format_unit_label(entry.unit),
+                prev_avg=prev_avg,
+                real_avg=real_avg,
+                aderencia=calculate_idp_adherence(real_avg, prev_avg),
+                entries=list(areas),
+            )
+        )
+    return groups
 
 
 def _build_discipline_rows(
@@ -185,7 +232,13 @@ def _build_discipline_rows(
         if prev_avg is not None and real_avg is not None:
             aderencia = calculate_idp_adherence(real_avg, prev_avg)
         rows.append(
-            IdpDisciplineRow(disciplina=disciplina, prev_avg=prev_avg, real_avg=real_avg, aderencia=aderencia)
+            IdpDisciplineRow(
+                disciplina=disciplina,
+                prev_avg=prev_avg,
+                real_avg=real_avg,
+                aderencia=aderencia,
+                unit_groups=_build_discipline_unit_groups(included_winners, disciplina),
+            )
         )
     return rows
 

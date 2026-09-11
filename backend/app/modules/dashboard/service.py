@@ -16,7 +16,7 @@ from app.modules.scorecard.calculations import (
     compute_general_panel,
     read_snapshot_values,
 )
-from app.modules.scorecard.types import SC_INDICATORS
+from app.modules.scorecard.types import SC_INDICATORS, ActiveScorecardIndicator
 from app.shared.period import (
     MonthReference,
     PeriodRange,
@@ -67,14 +67,15 @@ class AvailablePeriod:
 
 async def list_available_periods(session: AsyncSession) -> list[AvailablePeriod]:
     """Deriva os ciclos operacionais (Ano+Semestre) que têm ao menos uma
-    competência publicada em algum dos 5 módulos de origem — contrato
+    competência publicada em algum dos módulos de origem dos indicadores
+    ativos do Scorecard — contrato
     explícito `periodKey`/`referenceYear`/`semester`/mês inicial/mês final/
     lista exata de competências, adicional ao `PeriodRange` já usado."""
     publications = await scorecard_repository.list_all_source_publications(session)
 
     months: set[tuple[int, int]] = set()
     for indicator in SC_INDICATORS:
-        if indicator.source is None:
+        if not isinstance(indicator, ActiveScorecardIndicator):
             continue
         matching = [
             p

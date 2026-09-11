@@ -29,7 +29,7 @@ from app.modules.cinco_s.types import (
     FiveSUnitMonth,
 )
 from app.shared.period import MONTH_NAMES, PeriodRange, is_within_period_range
-from app.shared.units import compare_units, normalize_unit_code
+from app.shared.units import compare_units, format_unit_label, normalize_unit_code
 
 
 def _is_finite_number(value: object) -> bool:
@@ -106,7 +106,7 @@ def compute_five_s_result(
 
     unit_months: list[FiveSUnitMonth] = [
         FiveSUnitMonth(
-            unit=rec.unit,
+            unit=format_unit_label(rec.unit),
             year=rec.year,
             month=rec.month,
             aderencia=aderencia_unidade(rec.areas),

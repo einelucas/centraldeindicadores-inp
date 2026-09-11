@@ -185,20 +185,16 @@ async def test_suggestion_endpoint_cinco_s(client, auth_header) -> None:
     assert suggestion["status"] == "BELOW_TARGET"
 
 
-async def test_suggestion_endpoint_taxa_acidentes(client, auth_header) -> None:
-    monthly = await client.post(
-        "/api/v1/taxa-acidentes",
-        json={"type": "month", "year": 2027, "month": 3, "rate": 9.0, "caf": 2},
-        headers=auth_header("ANALYST"),
+async def test_suggestion_endpoint_taxa_acidentes_module_removed(client, auth_header) -> None:
+    """Taxa de Acidentes foi descontinuada — nem a rota antiga nem o módulo
+    de justificativas aceitam mais essa chave."""
+    accident_route = await client.get(
+        "/api/v1/taxa-acidentes", headers=auth_header("ANALYST")
     )
-    assert monthly.status_code in (200, 201)
+    assert accident_route.status_code == 404
 
-    response = await client.get(
+    suggestion = await client.get(
         "/api/v1/justificativas/sugestao?module=taxa-acidentes&year=2027&month=3&target=7.5",
         headers=auth_header("ANALYST"),
     )
-    assert response.status_code == 200
-    suggestion = response.json()["suggestion"]
-    assert suggestion["status"] == "BELOW_TARGET"
-    assert suggestion["result"] == 9
-    assert suggestion["sourceImport"] is None  # taxa de acidentes não tem motor de importação
+    assert suggestion.status_code == 422

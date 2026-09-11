@@ -48,15 +48,15 @@ GET|PATCH|DELETE /rnc/registros
 GET|PATCH        /cinco-s
 GET|DELETE       /cinco-s/registros
 
-GET|POST|PATCH|DELETE /taxa-acidentes
-GET|DELETE             /taxa-acidentes/registros
-
 GET|POST  /publicacoes/rdo
 GET|POST  /publicacoes/idp
 GET|POST  /publicacoes/rnc
 GET|POST  /publicacoes/cinco-s
-GET|POST  /publicacoes/taxa-acidentes
 ```
+
+Taxa de Acidentes foi descontinuada (alinhamento 2026-alinhamento-v2) —
+`/taxa-acidentes`, `/taxa-acidentes/registros` e `/publicacoes/taxa-acidentes`
+não existem mais; qualquer chamada retorna 404.
 
 `GET .../registros` retorna a contagem de registros afetados por um
 período (ou pela base inteira); `DELETE` no mesmo caminho executa a
@@ -72,9 +72,6 @@ GET  /importacoes/{id}                 status e detalhe de um job
 GET  /importacoes/{id}/erros           erros de linha do job
 GET  /importacoes                       lista jobs
 ```
-
-Taxa de Acidentes não usa este fluxo — seus lançamentos são feitos direto
-por `POST /taxa-acidentes`.
 
 ## Administração geral
 

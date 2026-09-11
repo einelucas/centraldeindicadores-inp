@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import tailwindcssAnimate from "tailwindcss-animate";
 
 export default <Partial<Config>>{
   content: [
@@ -15,6 +16,7 @@ export default <Partial<Config>>{
         success: "#609346",
         danger: "#c0392b",
         canvas: "#f4f5f7",
+        neutralbrand: "#bdbfc1",
         background: "hsl(var(--background) / <alpha-value>)",
         foreground: "hsl(var(--foreground) / <alpha-value>)",
         card: { DEFAULT: "hsl(var(--card-hsl) / <alpha-value>)", foreground: "hsl(var(--card-foreground) / <alpha-value>)" },
@@ -28,7 +30,16 @@ export default <Partial<Config>>{
         input: "hsl(var(--input) / <alpha-value>)",
         ring: "hsl(var(--ring) / <alpha-value>)",
       },
-      fontFamily: { sans: ["Manrope", "system-ui", "sans-serif"] },
+      fontFamily: {
+        sans: ["Manrope", "system-ui", "sans-serif"],
+        heading: ["Manrope", "system-ui", "sans-serif"],
+      },
+      borderRadius: {
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
+      },
     },
   },
+  plugins: [tailwindcssAnimate],
 };

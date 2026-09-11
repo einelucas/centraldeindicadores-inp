@@ -55,6 +55,18 @@ def test_descricao_missing_key_falls_back_to_descricao_without_accent() -> None:
     assert a == b
 
 
+def test_item_id_is_preferred_as_stable_business_identity() -> None:
+    a = rnc_business_key(_rec(raw={"item_id_auto_generated": "12903968840"}))
+    b = rnc_business_key(_rec(raw={"item_id_auto_generated": "12905806764"}))
+    assert a != b
+
+
+def test_same_item_id_keeps_key_when_mutable_content_changes() -> None:
+    a = rnc_business_key(_rec(status="PENDENTE", raw={"item_id_auto_generated": "12903968840"}))
+    b = rnc_business_key(_rec(status="TRATADA", raw={"item_id_auto_generated": "12903968840"}))
+    assert a == b
+
+
 def test_status_change_keeps_key_but_changes_hash() -> None:
     key_a = rnc_business_key(_rec(status="ABERTA"))
     key_b = rnc_business_key(_rec(status="TRATADA"))

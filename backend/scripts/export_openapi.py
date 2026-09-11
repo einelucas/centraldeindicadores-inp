@@ -16,7 +16,8 @@ from app.main import app  # noqa: E402
 
 
 def main() -> None:
-    output_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1] / "openapi.json"
+    default_path = Path(__file__).resolve().parents[1] / "openapi.json"
+    output_path = Path(sys.argv[1]) if len(sys.argv) > 1 else default_path
     schema = app.openapi()
     output_path.write_text(json.dumps(schema, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"OpenAPI exportado para {output_path} ({len(schema.get('paths', {}))} rotas).")

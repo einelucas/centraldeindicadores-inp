@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import {
   AlertTriangle,
   CalendarCheck,
-  ChartColumn,
   HardHat,
   LayoutDashboard,
   ListChecks,
@@ -31,13 +30,6 @@ export const TABS: Tab[] = [
     contextLabel: "Resumo Geral",
     href: "/dashboard/scorecard",
     icon: LayoutDashboard,
-  },
-  {
-    id: "rdo",
-    label: "RDO",
-    contextLabel: "Aprovação RDO",
-    href: "/dashboard/rdo",
-    icon: ChartColumn,
   },
   {
     id: "idp-disciplinas",

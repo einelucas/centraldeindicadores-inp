@@ -1,10 +1,12 @@
 # Módulos
 
-A Central de Indicadores acompanha cinco indicadores operacionais, um
-Scorecard que os consolida, e uma área administrativa transversal.
+A Central de Indicadores acompanha quatro indicadores oficiais do
+Scorecard (RDO, IDP/Cronograma, RNC e Horas Extras — este último em
+desenvolvimento), mais o 5S (aba própria, fora do cálculo do Scorecard) e
+uma área administrativa transversal.
 
-Cada indicador (RDO, IDP, RNC, 5S, Taxa de Acidentes) segue o mesmo padrão
-de tela: uma sub-aba **Painel** (somente leitura, mostra a publicação
+Cada indicador com operação plena (RDO, IDP, RNC) segue o mesmo padrão de
+tela: uma sub-aba **Painel** (somente leitura, mostra a publicação
 vigente) e uma sub-aba **Administração** (dados ao vivo — importação,
 configuração de meta, publicação), alternadas pelo switcher no canto
 superior direito da barra de abas.
@@ -19,7 +21,7 @@ pode ser editado manualmente na Administração (Aprovado / Revisar
 Relatório / Preenchendo Relatório).
 
 - meta padrão: **80%** de aprovação;
-- peso no Scorecard: **25%**.
+- peso no Scorecard: **35%**.
 
 ## IDP — Aderência ao cronograma
 
@@ -28,7 +30,7 @@ e mês, a partir de PDFs de RSO (Relatório de Serviço/Obra) importados e
 lidos no navegador. Compara linha de base (planejado) com execução real.
 
 - meta padrão: **90%** de aderência;
-- peso no Scorecard: **35%** (o de maior peso).
+- peso no Scorecard: **40%** (o de maior peso).
 
 ## RNC — Não conformidades
 
@@ -39,33 +41,33 @@ os detalhes de arredondamento e critério vivem no código do módulo
 (`backend/app/modules/rnc/`).
 
 - meta padrão: **15 dias** (quanto menor, melhor);
-- peso no Scorecard: **10%**.
+- peso no Scorecard: **15%**.
+
+## Horas Extras Pagas (em desenvolvimento)
+
+Quarto indicador oficial do Scorecard, com peso de **10%** já reservado,
+mas ainda sem fórmula, fonte de dados ou regra de comparação definidas.
+Aba própria em `/dashboard/horas-extras` (entre RNC e 5S na navegação),
+mostrando só um estado informativo — sem formulário, importador, gráfico
+ou chamada de API. Nunca pontua, nunca aparece como "fora da meta" ou "sem
+dados"; o status é sempre "Em desenvolvimento — não contabilizado". Ver
+`docs/scorecard.md` para a separação entre peso oficial e contabilizável.
 
 ## 5S — Programa 5S
 
-Calcula a aderência das auditorias 5S por unidade e área/mês, permitindo
-excluir unidades específicas da consolidação (por exemplo, unidades sem o
-programa implantado ainda).
-
-- meta padrão: **90%** de aderência;
-- peso no Scorecard: **10%**.
-
-## Taxa de Acidentes
-
-Único indicador sem importação de planilha: os lançamentos mensais (taxa
-de frequência consolidada + acidentes CAF) e por unidade (CAF + SAF) são
-cadastrados diretamente por formulário na Administração.
-
-- meta padrão: **7,5** (quanto menor, melhor);
-- peso no Scorecard: **20%**.
+Não integra mais o Scorecard (alinhamento 2026-alinhamento-v2). A aba
+`/dashboard/cinco-s` continua na navegação, mas mostra só "Em breve" — sem
+painel publicado, sem administração, sem chamada de API. Os dados
+históricos e a API do módulo (`backend/app/modules/cinco_s/`) permanecem
+intactos; só a UI dedicada e a participação no cálculo foram removidas.
 
 ## Scorecard e Painel Geral
 
-Consolida os cinco indicadores acima em um único painel por ciclo
-semestral. Não tem importação nem lançamento próprio — lê exclusivamente
-as publicações ativas dos outros módulos (ao vivo) ou snapshots salvos
-manualmente como respaldo histórico. Ver `docs/scorecard.md` para as
-regras completas de pontuação.
+Consolida os quatro indicadores oficiais (três ativos + Horas Extras
+reservado) em um único painel por ciclo semestral. Não tem importação nem
+lançamento próprio — lê exclusivamente as publicações ativas dos outros
+módulos (ao vivo) ou snapshots salvos manualmente como respaldo histórico.
+Ver `docs/scorecard.md` para as regras completas de pontuação.
 
 ## Justificativas
 

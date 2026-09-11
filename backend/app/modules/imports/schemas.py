@@ -96,3 +96,28 @@ class ImportErrorOut(CamelModel):
 
 class ImportErrorsOut(CamelModel):
     items: list[ImportErrorOut]
+
+
+# --- POST /importacoes/{modulo}/arquivos -----------------------------------------
+
+
+class UploadRowErrorOut(CamelModel):
+    row: int | None
+    field: str | None
+    message: str
+
+
+class UploadFileResultOut(CamelModel):
+    file_name: str
+    found: int
+    accepted: int
+    rejected: int
+    errors: list[UploadRowErrorOut] = Field(default_factory=list)
+
+
+class UploadImportOut(CamelModel):
+    import_job_id: str
+    status: str
+    totals: FinalizeTotalsOut
+    files: list[UploadFileResultOut]
+    duration_ms: int

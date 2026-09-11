@@ -12,9 +12,9 @@ from pydantic import Field, field_validator
 
 from app.shared.schema import CamelModel
 
-JUSTIFICATION_MODULES: tuple[str, ...] = ("rdo", "idp", "rnc", "cinco-s", "taxa-acidentes")
+JUSTIFICATION_MODULES: tuple[str, ...] = ("rdo", "idp", "rnc", "cinco-s")
 
-JustificationModule = Literal["rdo", "idp", "rnc", "cinco-s", "taxa-acidentes"]
+JustificationModule = Literal["rdo", "idp", "rnc", "cinco-s"]
 JustificationStatus = Literal["BELOW_TARGET", "ON_TARGET", "NO_DATA"]
 
 

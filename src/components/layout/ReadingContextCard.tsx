@@ -14,7 +14,6 @@ interface AvailablePeriod {
 
 const PERIOD_SOURCE_BY_HREF: Record<string, string> = {
   "/dashboard/scorecard": "scorecard",
-  "/dashboard/rdo": "rdo",
   "/dashboard/idp": "idp",
   "/dashboard/rnc": "rnc",
   "/dashboard/cinco-s": "cinco-s",

@@ -7,6 +7,7 @@ a normalização da configuração de unidades excluídas, e o recálculo dos
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Any
 
@@ -14,6 +15,12 @@ from pydantic import ValidationError
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
+from app.models.records import RdoRecord
+from app.modules.imports.bulk_upsert import bulk_upsert
+from app.modules.imports.parsers.base import FileFormatError, FileParseResult
+from app.modules.imports.parsers.rdo import dedupe_rdo_rows, parse_rdo_file, to_rdo_record
+from app.modules.imports.registry import FileImportFileResult, FileImportOutcome, FileRowError
 from app.modules.rdo.calculations import compute_rdo_result
 from app.modules.rdo.keys import rdo_business_key, rdo_content_hash
 from app.modules.rdo.repository import load_all_records, load_rdo_configuration
@@ -23,7 +30,12 @@ from app.shared.dates import parse_flex_date
 from app.shared.incremental_upsert import IncrementalRecord
 from app.shared.units import normalize_unit_code
 
-__all__ = ["normalize_excluded_units", "recalc_rdo_indicators", "to_incremental_records"]
+__all__ = [
+    "normalize_excluded_units",
+    "recalc_rdo_indicators",
+    "run_rdo_file_import",
+    "to_incremental_records",
+]
 
 
 def normalize_excluded_units(excluded_units: list[str]) -> list[str]:
@@ -108,6 +120,9 @@ async def recalc_rdo_indicators(session: AsyncSession) -> None:
     periods: set[tuple[int, int]] = {(r.year, r.month) for r in records}
 
     for year, month in periods:
+        # `raw` não entra em `compute_rdo_result` — omitido de propósito
+        # (`load_all_records` só carrega as colunas usadas aqui; ler `.raw`
+        # dispararia um lazy-load coluna a coluna, uma query por registro).
         subset = [
             RdoNormalizedRecord(
                 data_referencia=r.dataReferencia,
@@ -118,7 +133,6 @@ async def recalc_rdo_indicators(session: AsyncSession) -> None:
                 disciplina=r.disciplina,
                 year=r.year,
                 month=r.month,
-                raw=r.raw,
             )
             for r in records
             if r.year == year and r.month == month
@@ -167,3 +181,139 @@ async def _upsert_indicator_result(
         },
     )
     await session.execute(stmt)
+
+
+_RDO_MUTABLE_COLUMNS = ("contentHash", "statusDescricao", "raw", "lastImportId")
+
+
+def _build_rdo_insert_row(record: IncrementalRecord, import_id: str) -> dict[str, Any]:
+    """Mesmas colunas que `RdoDelegate.insert` grava — reaproveitando o
+    contrato já validado pelo fluxo linha-a-linha, só que agora numa única
+    linha de um `VALUES` em lote."""
+    data = record.data
+    return {
+        "businessKey": record.business_key,
+        "contentHash": record.content_hash,
+        "dataReferencia": data["dataReferencia"],
+        "empresaNome": data["empresaNome"],
+        "statusDescricao": data["statusDescricao"],
+        "relatorioId": data.get("relatorioId"),
+        "grupo": data.get("grupo"),
+        "disciplina": data.get("disciplina"),
+        "year": data["year"],
+        "month": data["month"],
+        "raw": data["raw"],
+        "firstImportId": import_id,
+        "lastImportId": import_id,
+    }
+
+
+async def _parse_rdo_file_safely(
+    semaphore: asyncio.Semaphore, file_name: str, content: bytes
+) -> FileParseResult:
+    async with semaphore:
+        try:
+            return await asyncio.to_thread(parse_rdo_file, content, file_name)
+        except FileFormatError as exc:
+            result = FileParseResult(file_name=file_name)
+            result.errors.append(FileRowError(row=None, field=None, message=str(exc)))
+            return result
+
+
+async def run_rdo_file_import(
+    session: AsyncSession, files: list[tuple[str, bytes]], import_id: str
+) -> FileImportOutcome:
+    """Implementa `ModuleDefinition.file_import` do RDO para `POST
+    /importacoes/rdo/arquivos`: parse de todos os arquivos (em thread,
+    concorrência limitada), dedup entre arquivos, `to_incremental_records`
+    (reaproveitado sem alteração — mesma validação/hash de sempre),
+    `bulk_upsert` e `recalc_rdo_indicators` uma única vez. Tudo dentro da
+    transação já aberta pelo chamador (`imports/service.py`)."""
+    settings = get_settings()
+    semaphore = asyncio.Semaphore(max(1, settings.import_file_concurrency))
+
+    parsed = await asyncio.gather(
+        *(_parse_rdo_file_safely(semaphore, name, content) for name, content in files)
+    )
+
+    max_rows = settings.max_import_rows_per_file
+    for file_result in parsed:
+        if file_result.found > max_rows:
+            file_result.errors.append(
+                FileRowError(
+                    row=None, field=None,
+                    message=f"Arquivo tem {file_result.found} linhas — limite de {max_rows} por arquivo.",
+                )
+            )
+            file_result.rows = []
+
+    all_rows: list[dict[str, Any]] = []
+    for file_result in parsed:
+        all_rows.extend(file_result.rows)
+
+    deduped_rows, _duplicates = dedupe_rdo_rows(all_rows)
+
+    # Rastreia, por linha deduplicada, a qual arquivo ela pertence (para
+    # reportar erros de `to_incremental_records`/`to_rdo_record` no arquivo
+    # certo). Como a dedup preserva a 1ª ocorrência, basta varrer os arquivos
+    # na mesma ordem e "consumir" as linhas que sobraram por identidade.
+    deduped_ids = {id(row) for row in deduped_rows}
+
+    per_file: list[FileImportFileResult] = []
+    raw_records: list[dict[str, Any]] = []
+    row_origin: list[str] = []  # mesmo índice de `raw_records` -> nome do arquivo
+
+    for file_result in parsed:
+        accepted_in_file = 0
+        file_errors = list(file_result.errors)
+        for row in file_result.rows:
+            if id(row) not in deduped_ids:
+                continue
+            converted = to_rdo_record(row)
+            if converted is None:
+                file_errors.append(
+                    FileRowError(row=None, field="data", message="Linha sem data ou unidade válida.")
+                )
+                continue
+            raw_records.append(converted)
+            row_origin.append(file_result.file_name)
+            accepted_in_file += 1
+        per_file.append(
+            FileImportFileResult(
+                file_name=file_result.file_name,
+                found=file_result.found,
+                accepted=accepted_in_file,
+                rejected=file_result.found - accepted_in_file,
+                errors=file_errors,
+            )
+        )
+
+    incremental_records, schema_rejected = to_incremental_records(raw_records)
+
+    # `to_incremental_records` descarta silenciosamente linhas inválidas sem
+    # dizer qual — distribui o total rejeitado proporcionalmente por arquivo
+    # não é confiável; como cada `raw_records[i]` já passou por
+    # `to_rdo_record` com sucesso, qualquer rejeição aqui vem de
+    # `RdoRecordIn`/data inválida residual — soma no primeiro arquivo com
+    # linhas para não perder a contagem no total do job.
+    if schema_rejected and per_file:
+        per_file[0].rejected += schema_rejected
+
+    upsert_outcome = await bulk_upsert(
+        session,
+        RdoRecord,
+        incremental_records,
+        import_id=import_id,
+        build_insert_row=_build_rdo_insert_row,
+        mutable_columns=_RDO_MUTABLE_COLUMNS,
+    )
+
+    await recalc_rdo_indicators(session)
+
+    return FileImportOutcome(
+        inserted=upsert_outcome.inserted,
+        updated=upsert_outcome.updated,
+        ignored=upsert_outcome.ignored,
+        rejected=sum(f.rejected for f in per_file),
+        files=per_file,
+    )

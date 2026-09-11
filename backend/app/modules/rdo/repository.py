@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from app.models.common import utcnow
 from app.models.imports import ImportJob, ImportStatus
@@ -90,16 +91,49 @@ class RdoDelegate:
         await self._session.flush()
 
 
+# Colunas realmente usadas por `RdoNormalizedRecord`/`compute_rdo_result` — o
+# `raw` (JSONB, o payload bruto da linha importada) nunca entra no cálculo,
+# só na geração de business key/content hash durante a importação. Evitar
+# trazê-lo aqui corta boa parte do tráfego de rede destas queries (a tabela
+# tem +1800 linhas e cada `raw` pode ter centenas de bytes).
+_CALCULATION_COLUMNS = (
+    RdoRecord.dataReferencia,
+    RdoRecord.empresaNome,
+    RdoRecord.statusDescricao,
+    RdoRecord.relatorioId,
+    RdoRecord.grupo,
+    RdoRecord.disciplina,
+    RdoRecord.year,
+    RdoRecord.month,
+)
+
+_DETAIL_COLUMNS = (
+    RdoRecord.dataReferencia,
+    RdoRecord.empresaNome,
+    RdoRecord.grupo,
+    RdoRecord.disciplina,
+    RdoRecord.statusDescricao,
+    RdoRecord.relatorioId,
+    RdoRecord.editedManually,
+)
+
+
 async def load_all_records(session: AsyncSession) -> list[RdoRecord]:
     """Sem filtro — usado por `recalc_rdo_indicators` e por POST /publicacoes/rdo."""
     result = await session.execute(
-        select(RdoRecord).order_by(RdoRecord.dataReferencia.asc(), RdoRecord.empresaNome.asc())
+        select(RdoRecord)
+        .options(load_only(*_CALCULATION_COLUMNS))
+        .order_by(RdoRecord.dataReferencia.asc(), RdoRecord.empresaNome.asc())
     )
     return list(result.scalars().all())
 
 
 async def load_calculation_rows(session: AsyncSession, filters: list[Any]) -> list[RdoRecord]:
-    stmt = select(RdoRecord).order_by(RdoRecord.dataReferencia.asc(), RdoRecord.empresaNome.asc())
+    stmt = (
+        select(RdoRecord)
+        .options(load_only(*_CALCULATION_COLUMNS))
+        .order_by(RdoRecord.dataReferencia.asc(), RdoRecord.empresaNome.asc())
+    )
     if filters:
         stmt = stmt.where(*filters)
     result = await session.execute(stmt)
@@ -111,6 +145,7 @@ async def load_detail_rows(
 ) -> list[RdoRecord]:
     stmt = (
         select(RdoRecord)
+        .options(load_only(*_DETAIL_COLUMNS))
         .order_by(RdoRecord.dataReferencia.desc(), RdoRecord.empresaNome.asc())
         .limit(limit)
     )

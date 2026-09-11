@@ -26,6 +26,7 @@ from app.core.config import get_settings  # noqa: E402
 from app.core.database import SessionLocal  # noqa: E402
 from app.models.settings import AppSetting  # noqa: E402
 from app.models.user import Role, User  # noqa: E402
+from app.shared.units import UNITS  # noqa: E402
 
 # Mesmos valores padrão de `prisma/seed.ts` / `docs/database.md`.
 DEFAULT_SETTINGS: list[tuple[str, object]] = [
@@ -35,12 +36,11 @@ DEFAULT_SETTINGS: list[tuple[str, object]] = [
     ("fiveS.target", 0.9),
     ("rnc.maxPrazoDias", 15),
     ("fiveS.excludedUnits", ["SP", "CSC"]),
-    ("taxa-acidentes.target", 7.5),
 ]
 
-# Unidades operacionais conhecidas — ver app/shared/units.py (fonte de verdade
-# do código; aqui apenas garantimos que o seed as menciona para referência).
-KNOWN_UNIT_CODES = ["LEM", "MTU", "RVD", "BLS", "SNP", "DRD", "RDN", "SDR"]
+# Unidades operacionais conhecidas — fonte de verdade em app/shared/units.py;
+# aqui apenas garantimos que o seed as menciona para referência.
+KNOWN_UNIT_CODES = [unit.code for unit in UNITS]
 
 TEST_USER_EXTERNAL_ID = "seed:test-admin"
 TEST_USER_EMAIL = "teste.admin@central-indicadores.local"

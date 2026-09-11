@@ -27,7 +27,7 @@ export function joinWithAnd(items: string[]): string {
   return `${items.slice(0, -1).join(", ")} e ${items[items.length - 1]}`;
 }
 
-type AvailablePeriodSource = "rdo" | "idp" | "rnc" | "cinco-s" | "taxa-acidentes" | "scorecard";
+type AvailablePeriodSource = "idp" | "rnc" | "cinco-s" | "taxa-acidentes" | "scorecard";
 
 /**
  * Estado e lógica do seletor único de "período de trabalho" usado no card de

@@ -68,6 +68,13 @@ class RdoUnitAggregate:
     aprovados: int
     aderencia: float
     excluded: bool
+    # Código normalizado (`normalize_unit_code`) — é o que `excludedUnits`
+    # de fato armazena. `name` é só o rótulo bonito para exibição; usar
+    # `name` para (des)marcar exclusão quebra a comparação, pois os dois
+    # nunca são garantidamente o mesmo texto (Divergência já vista em prod:
+    # marcar excluía por `code`, desmarcar comparava por `name` e nunca
+    # batia, então "desmarcar" virava um novo `add` em vez de `delete`).
+    code: str
 
 
 @dataclass(slots=True)

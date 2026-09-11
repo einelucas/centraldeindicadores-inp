@@ -1,4 +1,4 @@
-export const JUSTIFICATION_MODULES = ["rdo", "idp", "rnc", "cinco-s", "taxa-acidentes"] as const;
+export const JUSTIFICATION_MODULES = ["idp", "rnc", "cinco-s", "taxa-acidentes"] as const;
 
 export type JustificationModule = (typeof JUSTIFICATION_MODULES)[number];
 

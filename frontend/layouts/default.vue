@@ -8,7 +8,7 @@ const showShell = computed(() => !route.meta.publicLayout);
     <AppHeader />
     <TabsNav />
     <main class="nuxt-app-main"><slot /></main>
-    <footer class="pb-8 text-center text-xs text-slate-400">Central de Indicadores</footer>
+    <footer class="p-6 text-center text-[11.5px] text-[#9aa1ac]">Central de Indicadores - 2026</footer>
   </div>
   <slot v-else />
 </template>

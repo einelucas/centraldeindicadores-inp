@@ -1,8 +1,8 @@
 """Acesso a dados do Scorecard/Painel Geral.
 
-Lê `IndicatorPublication` dos 5 módulos de origem (`SC_INDICATORS`),
-`ScorecardSnapshot` e a configuração de período de controle
-(`AppSetting["scorecard.panelPeriod"]`).
+Lê `IndicatorPublication` dos módulos de origem dos indicadores ATIVOS
+(`SC_ACTIVE_INDICATORS`), `ScorecardSnapshot` e a configuração de período de
+controle (`AppSetting["scorecard.panelPeriod"]`).
 """
 
 from __future__ import annotations
@@ -17,14 +17,16 @@ from sqlalchemy.orm import selectinload
 from app.models.indicators import IndicatorPublication
 from app.models.records import ScorecardSnapshot
 from app.models.settings import AppSetting
-from app.modules.scorecard.types import SC_INDICATORS, SCORECARD_PANEL_PERIOD_SETTING
+from app.modules.scorecard.types import (
+    SC_ACTIVE_INDICATORS,
+    SCORECARD_PANEL_PERIOD_SETTING,
+    SCORECARD_POLICY_ID,
+)
 from app.shared.hashing import make_business_key, make_content_hash
 from app.shared.period import PeriodRange, period_range_predicate
 
 _SOURCE_MODULE_INDICATOR_PAIRS: tuple[tuple[str, str], ...] = tuple(
-    (indicator.source.module, indicator.source.indicator)
-    for indicator in SC_INDICATORS
-    if indicator.source is not None
+    (indicator.source.module, indicator.source.indicator) for indicator in SC_ACTIVE_INDICATORS
 )
 
 
@@ -33,8 +35,9 @@ def _utcnow() -> datetime:
 
 
 async def list_all_source_publications(session: AsyncSession) -> list[IndicatorPublication]:
-    """Todas as publicações (ativas e históricas) dos 5 módulos de origem do
-    Scorecard, com `publishedBy` carregado — usado tanto para o Painel Geral
+    """Todas as publicações (ativas e históricas) dos módulos de origem dos
+    indicadores ATIVOS do Scorecard, com `publishedBy` carregado — usado
+    tanto para o Painel Geral
     quanto para a recuperação de mês em publicação anterior."""
     conditions = [
         (IndicatorPublication.module == module) & (IndicatorPublication.indicator == indicator)
@@ -81,7 +84,7 @@ async def save_scorecard_snapshot(
     estável por competência (uma linha por mês, sempre atualizada no lugar)."""
     business_key = _scorecard_business_key(year, month)
     content_hash = make_content_hash({k: v if v is not None else "" for k, v in sorted(values.items())})
-    raw = {"values": values}
+    raw = {"values": values, "policy": SCORECARD_POLICY_ID}
 
     existing = await get_scorecard_snapshot(session, year, month)
     marker = str(uuid.uuid4())

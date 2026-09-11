@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from sqlalchemy import select
 
 from app.models.indicators import IndicatorResult
@@ -87,6 +88,42 @@ async def test_import_then_get_idp_selects_latest_rso(client, auth_header) -> No
     docs_by_rso = {d["rsoNumero"]: d for d in body["documents"]}
     assert docs_by_rso[34]["active"] is True
     assert docs_by_rso[32]["active"] is False  # continua no histórico, não venceu
+
+
+async def test_unit_rows_and_discipline_rows_expose_area_breakdown(client, auth_header) -> None:
+    """Cobertura de contrato do "Detalhamento por unidade" e da expansão de
+    "Aderência por disciplina" do painel administrativo do IDP (Nuxt)."""
+    await _import_records(
+        client, auth_header,
+        [
+            _idp_row(unit="Nova Mutum", rso_numero=34, civil_prev=100.0, civil_real=99.5),
+            _idp_row(unit="Rio Verde", rso_numero=1, civil_prev=80.0, civil_real=40.0),
+        ],
+    )
+
+    response = await client.get(
+        "/api/v1/idp?periodStartYear=2026&periodStartMonth=6&periodEndYear=2026&periodEndMonth=6",
+        headers=auth_header("VIEWER"),
+    )
+    assert response.status_code == 200
+    body = response.json()
+
+    unit_rows = {row["unit"]: row for row in body["result"]["unitRows"]}
+    nova_mutum = unit_rows["NOVA MUTUM"]
+    assert nova_mutum["disciplines"] == [
+        {
+            "disciplina": "01 - Civil",
+            "prevAvg": 100.0,
+            "realAvg": 99.5,
+            "aderencia": pytest.approx(0.995),
+            "areas": [{"area": "Pipe Rack", "prevAcum": 100.0, "realAcum": 99.5}],
+        }
+    ]
+
+    civil_row = next(row for row in body["result"]["disciplineRows"] if row["disciplina"] == "01 - Civil")
+    unit_groups = {group["unit"]: group for group in civil_row["unitGroups"]}
+    assert set(unit_groups) == {"NOVA MUTUM", "RIO VERDE"}
+    assert unit_groups["RIO VERDE"]["aderencia"] == pytest.approx(0.5)
 
 
 async def test_unit_normalization_at_version_selection(client, auth_header) -> None:

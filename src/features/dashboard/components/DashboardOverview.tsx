@@ -205,10 +205,8 @@ export function DashboardOverview() {
 
   useEffect(() => {
     const refresh = () => void load(cycleRef.current);
-    window.addEventListener("rdo:published", refresh);
     window.addEventListener("indicator:published", refresh);
     return () => {
-      window.removeEventListener("rdo:published", refresh);
       window.removeEventListener("indicator:published", refresh);
     };
   }, [load]);

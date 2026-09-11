@@ -9,12 +9,9 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   modules: ["@pinia/nuxt", "@nuxtjs/tailwindcss", "@nuxt/eslint"],
   components: [{ path: "~/components", pathPrefix: false }],
-  css: [resolve(__dirname, "../src/app/globals.css"), "~/assets/css/vue.css"],
+  css: ["~/assets/css/vue.css"],
   dir: {
     public: resolve(__dirname, "../public"),
-  },
-  alias: {
-    "@": posixResolve(__dirname, "../src"),
   },
   vite: {
     server: {

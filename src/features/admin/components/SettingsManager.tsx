@@ -9,7 +9,6 @@ interface Setting {
 
 /** Rótulos amigáveis para as chaves conhecidas. */
 const LABELS: Record<string, string> = {
-  "rdo.target": "RDO — meta de aprovação (fração)",
   "idp.target": "IDP/Cronograma — meta (fração)",
   "idp.excludedDisciplines": "IDP — disciplinas excluídas",
   "fiveS.target": "5S — meta (fração)",

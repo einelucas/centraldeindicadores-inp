@@ -1,8 +1,8 @@
 """Testes de integração HTTP do Scorecard, contra Postgres real.
 
 Publica `IndicatorPublication` diretamente via `db_session` (sem depender do
-código Python dos módulos rdo/idp/rnc/cinco_s/taxa_acidentes, que vivem em
-pacotes separados) — usa exatamente os formatos de payload que
+código Python dos módulos rdo/idp/rnc, que vivem em pacotes separados) —
+usa exatamente os formatos de payload que
 `app/modules/scorecard/calculations.py::adapt_publication` espera por chave.
 """
 

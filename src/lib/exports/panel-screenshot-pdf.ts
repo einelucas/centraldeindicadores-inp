@@ -1,7 +1,7 @@
 /**
  * Exportação de painel publicado para PDF via "print" do container (client-side).
  * Tira uma captura do node inteiro com html2canvas e embute como imagem única
- * num PDF do mesmo tamanho — usado pelos painéis publicados (RNC, RDO, ...).
+ * num PDF do mesmo tamanho — usado pelos painéis publicados (RNC, IDP, ...).
  */
 
 import { useCallback, useState, type RefObject } from "react";

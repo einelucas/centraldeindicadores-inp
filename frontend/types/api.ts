@@ -90,6 +90,39 @@ export interface ImportBatch {
   processedAt: string;
 }
 
+export interface UploadRowError {
+  row: number | null;
+  field: string | null;
+  message: string;
+}
+
+export interface UploadFileResult {
+  fileName: string;
+  found: number;
+  accepted: number;
+  rejected: number;
+  errors: UploadRowError[];
+}
+
+export interface UploadImportTotals {
+  found: number;
+  inserted: number;
+  ignored: number;
+  updated: number;
+  rejected: number;
+}
+
+/** Resposta de `POST /importacoes/{modulo}/arquivos` — parsing/validação/
+ * normalização/dedup/persistência acontecem inteiramente no FastAPI; o
+ * Nuxt só envia os arquivos originais e exibe este resultado consolidado. */
+export interface UploadImportResult {
+  importJobId: string;
+  status: string;
+  totals: UploadImportTotals;
+  files: UploadFileResult[];
+  durationMs: number;
+}
+
 export interface MetricDefinition {
   key: string;
   label: string;
@@ -101,9 +134,9 @@ export interface DashboardIndicator {
   label: string;
   shortLabel: string;
   peso: number;
-  meta: number;
-  direction: string;
-  unit: string;
+  meta: number | null;
+  direction: string | null;
+  unit: string | null;
   result: number | null;
   hasData: boolean;
   passed: boolean | null;
@@ -116,6 +149,10 @@ export interface DashboardIndicator {
     passed: boolean | null;
     pctOfMeta: number | null;
   }>;
+  /** "active" | "development" — indicadores em desenvolvimento (ex.: Horas
+   * Extras) nunca pontuam; ver `scoringEnabled`. */
+  status: string;
+  scoringEnabled: boolean;
 }
 
 export interface DashboardResponse extends PeriodRange {
@@ -130,6 +167,15 @@ export interface DashboardResponse extends PeriodRange {
   atendimentoGeral: number;
   percentualSemestreCompleto: number;
   percentualDadosDisponiveis: number;
+  /** `pontuacaoPrevista`, mas usando só o peso contabilizável (90% enquanto
+   * Horas Extras estiver em desenvolvimento). */
+  pontuacaoPrevistaContabilizavel: number;
+  /** `pontuacaoPrevista - pontuacaoPrevistaContabilizavel`. */
+  pontosReservados: number;
+  /** `pontosRealizados / pontuacaoPrevistaContabilizavel * 100`. */
+  atendimentoAtivosGeral: number;
+  /** Percentual do peso oficial que é contabilizável hoje — 90.0. */
+  coberturaAtivaPct: number;
   referenceDate: string | null;
   indicators: DashboardIndicator[];
 }
@@ -138,14 +184,16 @@ export interface ScorecardRow {
   key: string;
   label: string;
   peso: number;
-  meta: number;
-  direction: string;
-  unit: string;
+  meta: number | null;
+  direction: string | null;
+  unit: string | null;
   value: number | null;
   pass: boolean;
   pontos: number;
   pontosPossiveis: number;
   hasValue: boolean;
+  status: string;
+  scoringEnabled: boolean;
 }
 
 export interface ScorecardComputation {
@@ -159,5 +207,8 @@ export interface ScorecardComputation {
     totalPeso: number;
     pontosPossiveisMes: number;
     atendimentoMes: number;
+    pontosOficiaisMes: number;
+    pontosReservadosMes: number;
+    coberturaAtivaPct: number;
   };
 }

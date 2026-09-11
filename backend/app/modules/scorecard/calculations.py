@@ -34,9 +34,12 @@ from typing import Any, Protocol, TypeGuard, runtime_checkable
 
 from app.modules.scorecard.types import (
     SC_INDICATORS,
+    SCORECARD_ACTIVE_COVERAGE_PCT,
+    SCORECARD_ACTIVE_WEIGHT_TOTAL,
     SCORECARD_MAX_POINTS,
     SCORECARD_MONTHLY_POOL,
     SHORT_LABELS,
+    ActiveScorecardIndicator,
     ScorecardIndicator,
 )
 from app.shared.period import MONTH_NAMES, MONTH_NAMES_FULL, PeriodRange, enumerate_period_months
@@ -51,7 +54,10 @@ def _is_finite_number(value: Any) -> TypeGuard[float]:
 
 
 def indicator_monthly_points(indicator: ScorecardIndicator) -> float:
-    """Pontos mensais disponíveis para um indicador conforme seu peso."""
+    """Pontos mensais que o PESO de um indicador vale no pool oficial —
+    válido para qualquer indicador (ativo ou em desenvolvimento), já que só
+    depende de `peso`. Para um indicador em desenvolvimento, este valor é o
+    ponto RESERVADO (nunca contabilizável), não um valor "a atingir"."""
     return (indicator.peso / 100) * SCORECARD_MONTHLY_POOL
 
 
@@ -63,9 +69,12 @@ class ScoredValue:
     has_value: bool
 
 
-def score_indicator(indicator: ScorecardIndicator, value: float | None) -> ScoredValue:
-    """Avalia um indicador e aplica a regra binária da planilha (sem
-    tolerância nem pontuação parcial — meta exata já passa)."""
+def score_indicator(indicator: ActiveScorecardIndicator, value: float | None) -> ScoredValue:
+    """Avalia um indicador ATIVO e aplica a regra binária da planilha (sem
+    tolerância nem pontuação parcial — meta exata já passa). A assinatura só
+    aceita `ActiveScorecardIndicator` — um `DevelopmentScorecardIndicator`
+    (ex.: Horas Extras) não compila aqui, propositalmente: não existe
+    fórmula de avaliação para ele ainda."""
     pontos_possiveis = indicator_monthly_points(indicator)
 
     if not _is_finite_number(value):
@@ -86,14 +95,16 @@ class ScorecardRow:
     key: str
     label: str
     peso: float
-    meta: float
-    direction: str
-    unit: str
+    meta: float | None
+    direction: str | None
+    unit: str | None
     value: float | None
     passed: bool
     pontos: float
     pontos_possiveis: float
     has_value: bool
+    status: str
+    scoring_enabled: bool
 
 
 @dataclass(slots=True)
@@ -102,45 +113,95 @@ class ScorecardResult:
     total_pontos: float
     total_peso: float
     pontos_possiveis_mes: float
+    """Denominador de "atendimento dos indicadores ativos" — pool
+    CONTABILIZÁVEL do mês (soma dos pesos ativos), não o pool oficial. Com
+    Horas Extras em desenvolvimento isso é 90% do pool oficial; quando
+    Horas Extras virar ativo, este valor passa a coincidir com
+    `pontos_oficiais_mes` automaticamente."""
     atendimento_mes: float
+    """Percentual de atendimento dos indicadores ATIVOS — `total_pontos /
+    pontos_possiveis_mes * 100`. Com os ativos todos na meta, é 100%,
+    independentemente do peso reservado para indicadores em desenvolvimento."""
+    pontos_oficiais_mes: float
+    """Pool oficial do mês — sempre `SCORECARD_MONTHLY_POOL` (100% do peso
+    oficial), não muda com o status dos indicadores."""
+    pontos_reservados_mes: float
+    """Pontos do mês reservados para indicadores em desenvolvimento —
+    `pontos_oficiais_mes - pontos_possiveis_mes`."""
+    cobertura_ativa_pct: float
+    """Percentual do peso oficial que é contabilizável hoje — 90.0 enquanto
+    Horas Extras estiver em desenvolvimento."""
 
 
 def compute_scorecard(
     values: Mapping[str, float | None],
     indicators: Sequence[ScorecardIndicator] = SC_INDICATORS,
 ) -> ScorecardResult:
-    """Consolida os cinco indicadores para um mês. Sem `round` em nenhum
-    ponto — precisão decimal total, o arredondamento é só de apresentação."""
+    """Consolida os indicadores do Scorecard para um mês. Indicadores em
+    desenvolvimento (`scoring_enabled=False`) nunca são avaliados — mesmo
+    que `values` contenha um número para a chave deles, ele é ignorado, e a
+    linha resultante sempre tem `pontos=0`/`has_value=False`. Sem `round` em
+    nenhum ponto — precisão decimal total, o arredondamento é só de
+    apresentação."""
     rows: list[ScorecardRow] = []
     for indicator in indicators:
-        raw_value = values.get(indicator.key)
-        scored = score_indicator(indicator, raw_value)
-        rows.append(
-            ScorecardRow(
-                key=indicator.key,
-                label=indicator.label,
-                peso=indicator.peso,
-                meta=indicator.meta,
-                direction=indicator.direction,
-                unit=indicator.unit,
-                value=float(raw_value) if _is_finite_number(raw_value) else None,
-                passed=scored.passed,
-                pontos=scored.pontos,
-                pontos_possiveis=scored.pontos_possiveis,
-                has_value=scored.has_value,
+        if isinstance(indicator, ActiveScorecardIndicator):
+            raw_value = values.get(indicator.key)
+            scored = score_indicator(indicator, raw_value)
+            rows.append(
+                ScorecardRow(
+                    key=indicator.key,
+                    label=indicator.label,
+                    peso=indicator.peso,
+                    meta=indicator.meta,
+                    direction=indicator.direction,
+                    unit=indicator.unit,
+                    value=float(raw_value) if _is_finite_number(raw_value) else None,
+                    passed=scored.passed,
+                    pontos=scored.pontos,
+                    pontos_possiveis=scored.pontos_possiveis,
+                    has_value=scored.has_value,
+                    status=indicator.status,
+                    scoring_enabled=True,
+                )
             )
-        )
+        else:
+            rows.append(
+                ScorecardRow(
+                    key=indicator.key,
+                    label=indicator.label,
+                    peso=indicator.peso,
+                    meta=indicator.meta_reference,
+                    direction=None,
+                    unit=None,
+                    value=None,
+                    passed=False,
+                    pontos=0.0,
+                    pontos_possiveis=indicator_monthly_points(indicator),
+                    has_value=False,
+                    status=indicator.status,
+                    scoring_enabled=False,
+                )
+            )
 
     total_pontos = sum(row.pontos for row in rows)
     total_peso = sum(indicator.peso for indicator in indicators)
-    atendimento_mes = (total_pontos / SCORECARD_MONTHLY_POOL) * 100 if SCORECARD_MONTHLY_POOL else 0.0
+    pontos_oficiais_mes = SCORECARD_MONTHLY_POOL
+    pontos_contabilizaveis_mes = sum(row.pontos_possiveis for row in rows if row.scoring_enabled)
+    pontos_reservados_mes = pontos_oficiais_mes - pontos_contabilizaveis_mes
+    atendimento_mes = (
+        (total_pontos / pontos_contabilizaveis_mes) * 100 if pontos_contabilizaveis_mes else 0.0
+    )
 
     return ScorecardResult(
         rows=rows,
         total_pontos=total_pontos,
         total_peso=total_peso,
-        pontos_possiveis_mes=SCORECARD_MONTHLY_POOL,
+        pontos_possiveis_mes=pontos_contabilizaveis_mes,
         atendimento_mes=atendimento_mes,
+        pontos_oficiais_mes=pontos_oficiais_mes,
+        pontos_reservados_mes=pontos_reservados_mes,
+        cobertura_ativa_pct=SCORECARD_ACTIVE_COVERAGE_PCT,
     )
 
 
@@ -299,20 +360,6 @@ def _monthly_from_idp_rows(rows: Any) -> dict[str, float]:
     return monthly
 
 
-def _monthly_from_accident_rows(rows: Any) -> dict[str, float]:
-    monthly: dict[str, float] = {}
-    if not isinstance(rows, list):
-        return monthly
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        key = month_label_to_key(row.get("label", ""))
-        value = row.get("taxa")
-        if key and _is_finite_number(value):
-            monthly[key] = float(value)
-    return monthly
-
-
 def adapt_publication(key: str, publication: PublicationLike) -> AdaptedPublication:
     """Extrai `{current, monthly}` do payload de uma publicação, com o
     parser específico do indicador — porte de `adaptPublication`."""
@@ -344,18 +391,10 @@ def adapt_publication(key: str, publication: PublicationLike) -> AdaptedPublicat
             return AdaptedPublication(current=None)
         return AdaptedPublication(current=float(resultado), monthly=_monthly_from_value_rows(mensal))
 
-    if key == "5s":
-        resultado, meta, mensal = payload.get("resultado"), payload.get("meta"), payload.get("mensal")
-        if not _is_finite_number(resultado) or not _is_finite_number(meta) or not isinstance(mensal, list):
-            return AdaptedPublication(current=None)
-        return AdaptedPublication(current=float(resultado), monthly=_monthly_from_value_rows(mensal))
-
-    if key == "taxa_acidentes":
-        resultado, meta, mensal = payload.get("resultado"), payload.get("meta"), payload.get("mensal")
-        if not _is_finite_number(resultado) or not _is_finite_number(meta) or not isinstance(mensal, list):
-            return AdaptedPublication(current=None)
-        return AdaptedPublication(current=float(resultado), monthly=_monthly_from_accident_rows(mensal))
-
+    # Indicadores fora de `SC_INDICATORS` (ex.: "5s", "taxa_acidentes" em
+    # publicações/snapshots antigos) caem aqui e são ignorados — nunca
+    # alcançados no caminho real, já que `compute_scorecard`/
+    # `compute_general_panel` só chamam isto para chaves em `SC_INDICATORS`.
     return AdaptedPublication(current=None)
 
 
@@ -397,7 +436,7 @@ def latest_published_value_for_period(
 def _publications_for_indicator(
     indicator: ScorecardIndicator, publications: Sequence[PublicationLike]
 ) -> list[PublicationLike]:
-    if indicator.source is None:
+    if not isinstance(indicator, ActiveScorecardIndicator):
         return []
     matching = [
         publication
@@ -412,14 +451,14 @@ def _publications_for_indicator(
     return matching
 
 
-def passes_panel_target(indicator: ScorecardIndicator, value: float | None) -> bool | None:
+def passes_panel_target(indicator: ActiveScorecardIndicator, value: float | None) -> bool | None:
     if not _is_finite_number(value):
         return None
     assert value is not None
     return value <= indicator.meta if indicator.direction == "lower" else value >= indicator.meta
 
 
-def percent_of_target(indicator: ScorecardIndicator, value: float | None) -> float | None:
+def percent_of_target(indicator: ActiveScorecardIndicator, value: float | None) -> float | None:
     if not _is_finite_number(value):
         return None
     assert value is not None
@@ -453,9 +492,9 @@ class GeneralPanelIndicator:
     label: str
     short_label: str
     peso: float
-    meta: float
-    direction: str
-    unit: str
+    meta: float | None
+    direction: str | None
+    unit: str | None
     result: float | None
     has_data: bool
     passed: bool | None
@@ -463,6 +502,8 @@ class GeneralPanelIndicator:
     partial_pass: bool | None
     months: list[GeneralPanelMonthCell]
     publication: PublicationRef | None
+    status: str
+    scoring_enabled: bool
 
 
 @dataclass(slots=True)
@@ -484,6 +525,21 @@ class GeneralPanelData:
     (percentual contra o denominador proporcional aos meses com dado),
     exposto sob o nome pedido pela especificação desta migração, ao lado de
     `atendimento_geral` (preservado por compatibilidade de nome com o TS)."""
+    pontuacao_prevista_contabilizavel: float
+    """`pontuacao_prevista`, mas usando só o peso CONTABILIZÁVEL (90% hoje)
+    em vez do peso oficial — denominador correto para "atendimento dos
+    indicadores ativos". Quando Horas Extras virar ativo, coincide com
+    `pontuacao_prevista` automaticamente."""
+    pontos_reservados: float
+    """`pontuacao_prevista - pontuacao_prevista_contabilizavel` — pontos do
+    período reservados para indicadores em desenvolvimento."""
+    atendimento_ativos_geral: float
+    """`pontos_realizados / pontuacao_prevista_contabilizavel * 100` — com
+    todos os indicadores ativos na meta, é 100%, independentemente do peso
+    reservado."""
+    cobertura_ativa_pct: float
+    """Percentual do peso oficial que é contabilizável hoje — 90.0 enquanto
+    Horas Extras estiver em desenvolvimento."""
     reference_date: datetime | None
     indicators: list[GeneralPanelIndicator]
 
@@ -572,10 +628,21 @@ def compute_general_panel(
     result_indicators: list[GeneralPanelIndicator] = []
 
     for indicator in indicators:
+        active_indicator = indicator if isinstance(indicator, ActiveScorecardIndicator) else None
         entry = adapted_by_key.get(indicator.key)
         publication: PublicationLike | None = entry[0] if entry else None
         adapted_entry: AdaptedPublication | None = entry[1] if entry else None
         current = adapted_entry.current if adapted_entry else None
+
+        def _passed(
+            value: float | None, *, _indicator: ActiveScorecardIndicator | None = active_indicator
+        ) -> bool | None:
+            return passes_panel_target(_indicator, value) if _indicator is not None else None
+
+        def _pct(
+            value: float | None, *, _indicator: ActiveScorecardIndicator | None = active_indicator
+        ) -> float | None:
+            return percent_of_target(_indicator, value) if _indicator is not None else None
 
         months: list[GeneralPanelMonthCell] = []
         month_values: list[float] = []
@@ -585,14 +652,14 @@ def compute_general_panel(
                 fallback = snapshot_values.get(key, {}).get(indicator.key)
                 if _is_finite_number(fallback):
                     raw_value = float(fallback)
-            passed = passes_panel_target(indicator, raw_value)
+            passed = _passed(raw_value)
             months.append(
                 GeneralPanelMonthCell(
                     key=key,
                     label=month_key_to_label(key),
                     value=raw_value,
                     passed=passed,
-                    pct_of_meta=percent_of_target(indicator, raw_value),
+                    pct_of_meta=_pct(raw_value),
                 )
             )
             if raw_value is not None:
@@ -608,14 +675,18 @@ def compute_general_panel(
                 label=indicator.label,
                 short_label=SHORT_LABELS.get(indicator.key, indicator.label),
                 peso=indicator.peso,
-                meta=indicator.meta,
-                direction=indicator.direction,
-                unit=indicator.unit,
+                meta=(
+                    indicator.meta
+                    if isinstance(indicator, ActiveScorecardIndicator)
+                    else indicator.meta_reference
+                ),
+                direction=indicator.direction if isinstance(indicator, ActiveScorecardIndicator) else None,
+                unit=indicator.unit if isinstance(indicator, ActiveScorecardIndicator) else None,
                 result=current,
                 has_data=len(month_values) > 0,
-                passed=passes_panel_target(indicator, current),
+                passed=_passed(current),
                 partial=partial,
-                partial_pass=passes_panel_target(indicator, partial),
+                partial_pass=_passed(partial),
                 months=months,
                 publication=(
                     PublicationRef(
@@ -629,11 +700,22 @@ def compute_general_panel(
                     if publication
                     else None
                 ),
+                status=indicator.status,
+                scoring_enabled=active_indicator is not None,
             )
         )
 
     pontuacao_prevista = len(month_keys) * SCORECARD_MONTHLY_POOL
+    pontuacao_prevista_contabilizavel = len(month_keys) * (
+        (SCORECARD_ACTIVE_WEIGHT_TOTAL / 100) * SCORECARD_MONTHLY_POOL
+    )
+    pontos_reservados = pontuacao_prevista - pontuacao_prevista_contabilizavel
     atendimento_geral = (pontos_realizados / pontuacao_prevista) * 100 if pontuacao_prevista > 0 else 0.0
+    atendimento_ativos_geral = (
+        (pontos_realizados / pontuacao_prevista_contabilizavel) * 100
+        if pontuacao_prevista_contabilizavel > 0
+        else 0.0
+    )
     percentual_semestre_completo = (pontos_realizados / SCORECARD_MAX_POINTS) * 100
 
     reference_date = max((p.publishedAt for p in publications), default=None)
@@ -648,6 +730,10 @@ def compute_general_panel(
         atendimento_geral=atendimento_geral,
         percentual_semestre_completo=percentual_semestre_completo,
         percentual_dados_disponiveis=atendimento_geral,
+        pontuacao_prevista_contabilizavel=pontuacao_prevista_contabilizavel,
+        pontos_reservados=pontos_reservados,
+        atendimento_ativos_geral=atendimento_ativos_geral,
+        cobertura_ativa_pct=SCORECARD_ACTIVE_COVERAGE_PCT,
         reference_date=reference_date,
         indicators=result_indicators,
     )

@@ -16,7 +16,6 @@ from app.modules.rdo.router import router as rdo_router
 from app.modules.rnc.router import router as rnc_router
 from app.modules.scorecard.router import router as scorecard_router
 from app.modules.settings.router import router as settings_router
-from app.modules.taxa_acidentes.router import router as taxa_acidentes_router
 from app.modules.users.router import router as users_router
 
 api_router = APIRouter()
@@ -27,7 +26,6 @@ api_router.include_router(rdo_router)
 api_router.include_router(idp_router)
 api_router.include_router(rnc_router)
 api_router.include_router(cinco_s_router)
-api_router.include_router(taxa_acidentes_router)
 api_router.include_router(users_router)
 api_router.include_router(settings_router)
 api_router.include_router(audit_router)

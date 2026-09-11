@@ -18,8 +18,12 @@ def test_published_payload_basic_case() -> None:
         total_revisar=1,
         total_preenchendo=1,
         units=[
-            RdoUnitAggregate(name="INPASA Sinop", emitidos=6, aprovados=5, aderencia=5 / 6, excluded=False),
-            RdoUnitAggregate(name="Dourados", emitidos=4, aprovados=3, aderencia=0.75, excluded=False),
+            RdoUnitAggregate(
+                name="INPASA Sinop", code="SINOP", emitidos=6, aprovados=5, aderencia=5 / 6, excluded=False,
+            ),
+            RdoUnitAggregate(
+                name="Dourados", code="DOURADOS", emitidos=4, aprovados=3, aderencia=0.75, excluded=False,
+            ),
         ],
         unit_avg=0.0,
         months=[
