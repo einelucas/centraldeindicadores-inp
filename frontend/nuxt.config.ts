@@ -1,25 +1,9 @@
-import { resolve, sep } from "node:path";
-
-function posixResolve(...segments: string[]): string {
-  return resolve(...segments).split(sep).join("/");
-}
-
 export default defineNuxtConfig({
   compatibilityDate: "2025-07-15",
   devtools: { enabled: true },
   modules: ["@pinia/nuxt", "@nuxtjs/tailwindcss", "@nuxt/eslint"],
   components: [{ path: "~/components", pathPrefix: false }],
   css: ["~/assets/css/vue.css"],
-  dir: {
-    public: resolve(__dirname, "../public"),
-  },
-  vite: {
-    server: {
-      fs: {
-        allow: [posixResolve(__dirname, "..")],
-      },
-    },
-  },
   runtimeConfig: {
     public: {
       apiBaseUrl: process.env.NUXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1",
