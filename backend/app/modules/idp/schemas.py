@@ -76,6 +76,28 @@ class IdpExecutionPhaseOut(CamelModel):
     real_acum: float
 
 
+class IdpAreaEntryOut(CamelModel):
+    area: str
+    prev_acum: float
+    real_acum: float
+
+
+class IdpUnitDisciplineDetailOut(CamelModel):
+    disciplina: str
+    prev_avg: float
+    real_avg: float
+    aderencia: float | None
+    areas: list[IdpAreaEntryOut]
+
+
+class IdpDisciplineUnitGroupOut(CamelModel):
+    unit: str
+    prev_avg: float
+    real_avg: float
+    aderencia: float | None
+    entries: list[IdpAreaEntryOut]
+
+
 class IdpUnitRowOut(CamelModel):
     unit: str
     rso_numero: int
@@ -94,6 +116,7 @@ class IdpUnitRowOut(CamelModel):
     aderencia: float | None
     excluded: bool
     phases: list[IdpExecutionPhaseOut]
+    disciplines: list[IdpUnitDisciplineDetailOut]
 
 
 class IdpDisciplineRowOut(CamelModel):
@@ -101,6 +124,7 @@ class IdpDisciplineRowOut(CamelModel):
     prev_avg: float | None
     real_avg: float | None
     aderencia: float | None
+    unit_groups: list[IdpDisciplineUnitGroupOut]
 
 
 class IdpMonthAggregateOut(CamelModel):

@@ -61,12 +61,17 @@ async def get_dashboard(
         atendimento_geral=panel.atendimento_geral,
         percentual_semestre_completo=panel.percentual_semestre_completo,
         percentual_dados_disponiveis=panel.percentual_dados_disponiveis,
+        pontuacao_prevista_contabilizavel=panel.pontuacao_prevista_contabilizavel,
+        pontos_reservados=panel.pontos_reservados,
+        atendimento_ativos_geral=panel.atendimento_ativos_geral,
+        cobertura_ativa_pct=panel.cobertura_ativa_pct,
         reference_date=panel.reference_date,
         indicators=[
             GeneralPanelIndicatorOut(
                 key=i.key, label=i.label, short_label=i.short_label, peso=i.peso, meta=i.meta,
                 direction=i.direction, unit=i.unit, result=i.result, has_data=i.has_data,
                 passed=i.passed, partial=i.partial, partial_pass=i.partial_pass,
+                status=i.status, scoring_enabled=i.scoring_enabled,
                 months=[
                     GeneralPanelMonthCellOut(
                         key=m.key, label=m.label, value=m.value, passed=m.passed,

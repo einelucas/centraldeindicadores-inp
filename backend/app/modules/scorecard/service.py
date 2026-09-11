@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import DomainError
 from app.modules.scorecard import repository
 from app.modules.scorecard.calculations import (
     ScorecardResult,
@@ -16,8 +17,10 @@ from app.modules.scorecard.calculations import (
     merge_live_with_saved_fallback,
     read_snapshot_values,
 )
-from app.modules.scorecard.types import SC_INDICATORS
+from app.modules.scorecard.types import SC_ACTIVE_INDICATORS, SC_INDICATORS, ActiveScorecardIndicator
 from app.shared.period import PeriodRange, get_current_cycle
+
+_ACTIVE_INDICATOR_KEYS: frozenset[str] = frozenset(i.key for i in SC_ACTIVE_INDICATORS)
 
 
 @dataclass(slots=True)
@@ -40,7 +43,7 @@ async def _live_values_for_month(
     all_publications = await repository.list_all_source_publications(session)
     live_values: dict[str, float | None] = {}
     for indicator in SC_INDICATORS:
-        if indicator.source is None:
+        if not isinstance(indicator, ActiveScorecardIndicator):
             live_values[indicator.key] = None
             continue
         matching = [
@@ -75,12 +78,19 @@ async def save_scorecard_snapshot(
     respaldo para um indicador SEM valor ao vivo E sem snapshot anterior —
     nunca substitui um valor ao vivo existente, preservando a regra "ao vivo
     sempre vence"."""
+    overrides = overrides or {}
+    invalid_keys = set(overrides) - _ACTIVE_INDICATOR_KEYS
+    if invalid_keys:
+        raise DomainError(
+            "Overrides só podem ser enviados para indicadores ativos do Scorecard. "
+            f"Chave(s) inválida(s): {', '.join(sorted(invalid_keys))}."
+        )
+
     live_values = await _live_values_for_month(session, year, month)
     existing_snapshot = await repository.get_scorecard_snapshot(session, year, month)
     previous_saved = read_snapshot_values(existing_snapshot.raw) if existing_snapshot is not None else None
 
     to_save: dict[str, float | None] = {}
-    overrides = overrides or {}
     for indicator in SC_INDICATORS:
         live = live_values.get(indicator.key)
         if live is not None:

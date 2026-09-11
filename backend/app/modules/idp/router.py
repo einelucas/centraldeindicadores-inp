@@ -38,9 +38,11 @@ from app.modules.idp.repository import (
     reconstruct_records,
 )
 from app.modules.idp.schemas import (
+    IdpAreaEntryOut,
     IdpDeleteIn,
     IdpDeleteOut,
     IdpDisciplineRowOut,
+    IdpDisciplineUnitGroupOut,
     IdpDocumentOut,
     IdpExecutionPhaseOut,
     IdpGetOut,
@@ -52,6 +54,7 @@ from app.modules.idp.schemas import (
     IdpPublishIn,
     IdpRecordsCountOut,
     IdpResultOut,
+    IdpUnitDisciplineDetailOut,
     IdpUnitRowOut,
     PublishedByOut,
 )
@@ -77,7 +80,7 @@ from app.shared.period import (
 )
 from app.shared.period_params import period_range_query
 from app.shared.publication_cycle import resolve_publication_cycle, select_publication_for_period
-from app.shared.units import normalize_unit_code
+from app.shared.units import format_unit_label, normalize_unit_code
 
 router = APIRouter()
 
@@ -133,12 +136,33 @@ def _result_out(result: IdpResult) -> IdpResultOut:
                     IdpExecutionPhaseOut(label=p.label, prev_acum=p.prev_acum, real_acum=p.real_acum)
                     for p in u.phases
                 ],
+                disciplines=[
+                    IdpUnitDisciplineDetailOut(
+                        disciplina=disc.disciplina, prev_avg=disc.prev_avg, real_avg=disc.real_avg,
+                        aderencia=disc.aderencia,
+                        areas=[
+                            IdpAreaEntryOut(area=a.area, prev_acum=a.prev_acum, real_acum=a.real_acum)
+                            for a in disc.areas
+                        ],
+                    )
+                    for disc in u.disciplines
+                ],
             )
             for u in result.unit_rows
         ],
         discipline_rows=[
             IdpDisciplineRowOut(
-                disciplina=d.disciplina, prev_avg=d.prev_avg, real_avg=d.real_avg, aderencia=d.aderencia
+                disciplina=d.disciplina, prev_avg=d.prev_avg, real_avg=d.real_avg, aderencia=d.aderencia,
+                unit_groups=[
+                    IdpDisciplineUnitGroupOut(
+                        unit=g.unit, prev_avg=g.prev_avg, real_avg=g.real_avg, aderencia=g.aderencia,
+                        entries=[
+                            IdpAreaEntryOut(area=a.area, prev_acum=a.prev_acum, real_acum=a.real_acum)
+                            for a in g.entries
+                        ],
+                    )
+                    for g in d.unit_groups
+                ],
             )
             for d in result.discipline_rows
         ],
@@ -161,7 +185,9 @@ def _document_out(
         record.reference_year == result.selected_year and record.reference_month == result.selected_month
     )
     return IdpDocumentOut(
-        id=row.id, unit=row.unit, detected_unit=row.detectedUnit, unit_adjusted=row.unitAdjusted,
+        id=row.id, unit=format_unit_label(row.unit),
+        detected_unit=format_unit_label(row.detectedUnit) if row.detectedUnit else None,
+        unit_adjusted=row.unitAdjusted,
         rso_numero=row.rsoNumero, detected_rso_numero=row.detectedRsoNumero, rso_adjusted=row.rsoAdjusted,
         reference_year=row.referenceYear, reference_month=row.referenceMonth,
         detected_reference_year=row.detectedReferenceYear,

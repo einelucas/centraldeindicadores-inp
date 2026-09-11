@@ -6,12 +6,12 @@ Porte de `src/app/api/justificativas/**`. Todas as rotas exigem
 VIEWER recebe 403 mesmo para leitura).
 
 `GET /justificativas/sugestao` recalcula o indicador do zero a partir das
-tabelas de registros brutos por módulo (RDO/IDP/RNC/5S) ou dos lançamentos
-manuais (Taxa de Acidentes), com os mesmos 5 geradores de evidência/texto do
-TS original (`app/modules/justifications/generators/*.py`) — não é mais uma
+tabelas de registros brutos por módulo (RDO/IDP/RNC/5S), com os mesmos 4
+geradores de evidência/texto do TS original
+(`app/modules/justifications/generators/*.py`) — não é mais uma
 versão simplificada que recebia `result`/`evidence` já computados pelo
 chamador (essa era uma decisão de escopo tomada antes de RDO/IDP/RNC
-existirem em Python; agora que os 5 módulos existem, a rota foi reescrita
+existirem em Python; agora que os 4 módulos existem, a rota foi reescrita
 para paridade real com `src/app/api/justificativas/sugestao/route.ts`,
 inclusive o método HTTP — GET com query string, não POST com corpo)."""
 
@@ -37,7 +37,6 @@ from app.modules.justifications.generators.cinco_s import generate_five_s_justif
 from app.modules.justifications.generators.idp import generate_idp_justification
 from app.modules.justifications.generators.rdo import generate_rdo_justification
 from app.modules.justifications.generators.rnc import generate_rnc_justification
-from app.modules.justifications.generators.taxa_acidentes import generate_accident_rate_justification
 from app.modules.justifications.schemas import (
     DeleteJustificationOut,
     EvidenceItem,
@@ -57,8 +56,6 @@ from app.modules.rdo.types import RdoNormalizedRecord
 from app.modules.rnc.calculations import compute_rnc_result
 from app.modules.rnc.repository import load_rnc_configuration
 from app.modules.rnc.types import RncNormalizedRecord
-from app.modules.taxa_acidentes.calculations import compute_accident_rate_result
-from app.modules.taxa_acidentes.service import load_accident_rate_data
 from app.shared.period import PeriodRange
 
 router = APIRouter()
@@ -288,24 +285,6 @@ async def _generate_idp(session: AsyncSession, year: int, month: int, target: fl
     )
 
 
-async def _generate_accident_rate(
-    session: AsyncSession, year: int, month: int, target: float
-) -> Suggestion:
-    prev_year, prev_month = _previous_month_year(year, month)
-    data = await load_accident_rate_data(session)
-
-    result = compute_accident_rate_result(
-        data.monthly, data.units, target, data.excluded_units, PeriodRange(year, month, year, month)
-    )
-    previous_result = compute_accident_rate_result(
-        data.monthly, data.units, target, data.excluded_units,
-        PeriodRange(prev_year, prev_month, prev_year, prev_month),
-    )
-    return generate_accident_rate_justification(
-        result=result, previous_result=previous_result, year=year, month=month, source_import=None
-    )
-
-
 @router.get("/justificativas/sugestao", response_model=SuggestionResponseOut)
 async def sugestao_justificativa(
     module: JustificationModule = Query(...),
@@ -321,8 +300,6 @@ async def sugestao_justificativa(
         suggestion = await _generate_rnc(session, year, month, target)
     elif module == "cinco-s":
         suggestion = await _generate_five_s(session, year, month, target)
-    elif module == "taxa-acidentes":
-        suggestion = await _generate_accident_rate(session, year, month, target)
     else:
         suggestion = await _generate_rdo(session, year, month, target)
 

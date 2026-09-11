@@ -10,10 +10,12 @@ from pydantic import Field
 
 from app.shared.schema import CamelModel
 
-# As mesmas 8 chaves de `ACTIVE_SETTING_KEYS` (`src/app/api/configuracoes/route.ts`),
-# na mesma ordem. `SettingKey` (abaixo) reaproveita esta tupla como argumento de
-# `Literal` — `Literal[ACTIVE_SETTING_KEYS]` é equivalente a listar os 8
-# literais diretamente, então as duas listas nunca podem divergir.
+# `ACTIVE_SETTING_KEYS` — mesma ordem histórica de
+# `src/app/api/configuracoes/route.ts`, menos `taxa-acidentes.target`
+# (indicador removido — ver docs/scorecard.md). `SettingKey` (abaixo)
+# reaproveita esta tupla como argumento de `Literal` —
+# `Literal[ACTIVE_SETTING_KEYS]` é equivalente a listar os literais
+# diretamente, então as duas listas nunca podem divergir.
 ACTIVE_SETTING_KEYS: tuple[str, ...] = (
     "rdo.target",
     "idp.target",
@@ -22,7 +24,6 @@ ACTIVE_SETTING_KEYS: tuple[str, ...] = (
     "rnc.maxPrazoDias",
     "fiveS.target",
     "fiveS.excludedUnits",
-    "taxa-acidentes.target",
 )
 
 SettingKey = Literal[ACTIVE_SETTING_KEYS]  # type: ignore[valid-type]

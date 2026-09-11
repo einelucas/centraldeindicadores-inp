@@ -1,13 +1,8 @@
-"""Business key e content hash do RNC. Porte literal de
-`src/features/rnc/utils/keys.ts`.
+"""Business key e content hash do RNC.
 
-A `businessKey` inclui um desambiguador opcional lido de `raw["descrição"]`/
-`raw["descricao"]` (Divergência #9 do inventário): essa coluna NÃO é
-obrigatória na planilha de origem — se ausente, o desambiguador vira sempre
-"" e duas RNCs genuinamente diferentes com mesma unidade+data de criação+
-ofensor colidem na mesma chave (a segunda vira `update`/`ignored` da
-primeira, nunca um registro novo). Risco herdado do comportamento original,
-preservado por paridade.
+Exportações atuais fornecem ``Item ID (auto generated)``, que é a identidade
+estável prioritária. Planilhas antigas sem esse campo continuam usando a
+composição legada de unidade, data de criação, ofensor e descrição.
 """
 
 from __future__ import annotations
@@ -44,8 +39,14 @@ def _js_number_string(value: float) -> str:
 
 
 def rnc_business_key(record: RncNormalizedRecord) -> str:
-    """Ordem exata das partes: unidade | dataCriacao(ISO date) | ofensor |
-    descrição/observação (opcional, lida de `raw`)."""
+    """Usa Item ID quando disponível e preserva o fallback legado."""
+    item_id = _first_not_none(
+        record.raw.get("item_id_auto_generated"),
+        record.raw.get("item id (auto generated)"),
+    )
+    if item_id not in (None, ""):
+        return make_business_key("RNC", ["ITEM", item_id])
+
     descricao = _first_not_none(record.raw.get("descrição"), record.raw.get("descricao"), "")
     return make_business_key(
         "RNC",

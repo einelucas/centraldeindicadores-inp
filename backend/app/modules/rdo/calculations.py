@@ -16,7 +16,7 @@ from app.modules.rdo.types import (
     RdoUnitAggregate,
 )
 from app.shared.period import MONTH_NAMES, PeriodRange, is_within_period_range
-from app.shared.units import normalize_unit_code
+from app.shared.units import format_unit_label, normalize_unit_code
 
 __all__ = ["calculate_rdo_adherence", "compute_rdo_result", "meets_target"]
 
@@ -89,7 +89,8 @@ def compute_rdo_result(
         unit_agg = by_unit.get(unit)
         if unit_agg is None:
             unit_agg = RdoUnitAggregate(
-                name=unit, emitidos=0, aprovados=0, aderencia=0.0, excluded=unit in exclude_set
+                name=format_unit_label(unit), code=unit, emitidos=0, aprovados=0, aderencia=0.0,
+                excluded=unit in exclude_set,
             )
             by_unit[unit] = unit_agg
         unit_agg.emitidos += 1

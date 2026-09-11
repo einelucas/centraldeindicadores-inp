@@ -119,9 +119,11 @@ frontend/
 ```
 
 `PublishedPanel` e `IndicatorAdmin` são componentes genéricos que recebem o
-nome do módulo como prop e adaptam métricas, gráficos e tabelas — RDO, IDP,
-RNC, 5S e Taxa de Acidentes reaproveitam os mesmos dois componentes em vez
-de ter uma tela própria cada um.
+nome do módulo como prop e adaptam métricas, gráficos e tabelas — RDO, IDP e
+RNC reaproveitam os mesmos dois componentes em vez de ter uma tela própria
+cada um. A página do 5S (`/dashboard/cinco-s`) não usa mais esses
+componentes — mostra só um estado estático "Em breve" (o indicador saiu do
+Scorecard, mas os dados históricos e a API do módulo continuam intactos).
 
 ## Importação de planilhas
 

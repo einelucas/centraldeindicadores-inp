@@ -112,6 +112,36 @@ class IdpUnitRow:
     """Fases de execução do RSO vencedor (`label`/`prev_acum`/`real_acum` por
     fase) — usado pelo gerador de justificativa do IDP para apontar o maior
     desvio de fase (previsto vs. realizado)."""
+    disciplines: list[IdpUnitDisciplineDetail] = field(default_factory=list)
+    """Detalhamento por disciplina/área do RSO vencedor desta unidade —
+    "Detalhamento por unidade" do painel administrativo. Vazio quando a
+    linha não veio de `compute_idp_result` (ex.: fixtures de teste que
+    montam `IdpUnitRow` diretamente sem essa granularidade)."""
+
+
+@dataclass(slots=True)
+class IdpUnitDisciplineDetail:
+    """Detalhamento por disciplina do RSO vencedor de uma unidade — usado
+    pelo "Detalhamento por unidade" (unidade -> disciplina -> área)."""
+
+    disciplina: str
+    prev_avg: float
+    real_avg: float
+    aderencia: float | None
+    areas: list[IdpAreaEntry]
+
+
+@dataclass(slots=True)
+class IdpDisciplineUnitGroup:
+    """Contribuição de uma unidade para uma linha de `IdpDisciplineRow` —
+    usado pela expansão de "Aderência por disciplina" (disciplina -> unidade
+    -> área)."""
+
+    unit: str
+    prev_avg: float
+    real_avg: float
+    aderencia: float | None
+    entries: list[IdpAreaEntry]
 
 
 @dataclass(slots=True)
@@ -120,6 +150,7 @@ class IdpDisciplineRow:
     prev_avg: float | None
     real_avg: float | None
     aderencia: float | None
+    unit_groups: list[IdpDisciplineUnitGroup] = field(default_factory=list)
 
 
 @dataclass(slots=True)

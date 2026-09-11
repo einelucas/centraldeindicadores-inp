@@ -60,9 +60,9 @@ class GeneralPanelIndicatorOut(CamelModel):
     label: str
     short_label: str
     peso: float
-    meta: float
-    direction: str
-    unit: str
+    meta: float | None
+    direction: str | None
+    unit: str | None
     result: float | None
     has_data: bool
     passed: bool | None
@@ -70,6 +70,8 @@ class GeneralPanelIndicatorOut(CamelModel):
     partial_pass: bool | None
     months: list[GeneralPanelMonthCellOut]
     publication: PublicationRefOut | None
+    status: str
+    scoring_enabled: bool
 
 
 class GeneralPanelOut(CamelModel):
@@ -84,5 +86,9 @@ class GeneralPanelOut(CamelModel):
     atendimento_geral: float
     percentual_semestre_completo: float
     percentual_dados_disponiveis: float
+    pontuacao_prevista_contabilizavel: float
+    pontos_reservados: float
+    atendimento_ativos_geral: float
+    cobertura_ativa_pct: float
     reference_date: datetime | None
     indicators: list[GeneralPanelIndicatorOut]

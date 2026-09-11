@@ -11,6 +11,7 @@ from app.modules.justifications.schemas import EvidenceItem, JustificationStatus
 from app.modules.justifications.types import Suggestion
 from app.modules.rdo.types import STATUS_APROVADO, STATUS_PREENCHENDO, STATUS_REVISAR, RdoNormalizedRecord
 from app.shared.dates import MONTH_NAMES_FULL
+from app.shared.units import format_unit_label, normalize_unit_code
 
 __all__ = ["generate_rdo_justification"]
 
@@ -28,15 +29,24 @@ def _pct(value: float) -> str:
 
 
 def _rank_by(
-    rows: list[RdoNormalizedRecord], read_name: Callable[[RdoNormalizedRecord], str | None]
+    rows: list[RdoNormalizedRecord],
+    read_name: Callable[[RdoNormalizedRecord], str | None],
+    key_fn: Callable[[str], str] | None = None,
 ) -> list[_RankedCause]:
+    """`key_fn` agrupa por um identificador canônico distinto do texto bruto
+    — usado para unidades, cujas siglas alternativas (ex.: MTU/NMT) precisam
+    ser consolidadas num único grupo antes da contagem, nunca ranqueadas
+    separadamente."""
     grouped: dict[str, dict[str, int]] = {}
     for row in rows:
         raw_name = read_name(row)
         name = raw_name.strip() if raw_name else ""
         if not name:
             continue
-        current = grouped.setdefault(name, {"pending": 0, "total": 0, "approved": 0})
+        key = key_fn(name) if key_fn else name
+        if not key:
+            continue
+        current = grouped.setdefault(key, {"pending": 0, "total": 0, "approved": 0})
         current["total"] += 1
         if row.status_descricao == STATUS_APROVADO:
             current["approved"] += 1
@@ -78,7 +88,7 @@ def generate_rdo_justification(
     previous_approved = sum(1 for r in previous_rows if r.status_descricao == STATUS_APROVADO)
     previous_adherence = (previous_approved / len(previous_rows)) if previous_rows else None
 
-    units = _rank_by(rows, lambda r: r.empresa_nome)
+    units = _rank_by(rows, lambda r: r.empresa_nome, key_fn=normalize_unit_code)
     groups = _rank_by(rows, lambda r: r.grupo)
     disciplines = _rank_by(rows, lambda r: r.disciplina)
     month_name = MONTH_NAMES_FULL[month - 1] if 1 <= month <= 12 else f"Mês {month}"
@@ -120,7 +130,7 @@ def generate_rdo_justification(
     if units:
         evidence.append(
             EvidenceItem(
-                label="Maior concentração", value=units[0].name,
+                label="Maior concentração", value=format_unit_label(units[0].name),
                 detail=f"{units[0].pending} não aprovado(s) de {units[0].total}",
             )
         )
@@ -136,7 +146,10 @@ def generate_rdo_justification(
     if units:
         lines.append(
             "As maiores concentrações de RDOs não aprovados ocorreram em: "
-            + "; ".join(f"{u.name} ({u.pending} de {u.total}; aderência {_pct(u.adherence)})" for u in units)
+            + "; ".join(
+                f"{format_unit_label(u.name)} ({u.pending} de {u.total}; aderência {_pct(u.adherence)})"
+                for u in units
+            )
             + "."
         )
     if groups:

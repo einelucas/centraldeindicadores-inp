@@ -59,7 +59,12 @@ from app.modules.rdo.schemas import (
     RdoResultOut,
     RdoUnitAggregateOut,
 )
-from app.modules.rdo.service import normalize_excluded_units, recalc_rdo_indicators, to_incremental_records
+from app.modules.rdo.service import (
+    normalize_excluded_units,
+    recalc_rdo_indicators,
+    run_rdo_file_import,
+    to_incremental_records,
+)
 from app.modules.rdo.types import (
     RDO_DEFAULT_TARGET,
     RDO_INDICATOR,
@@ -76,6 +81,7 @@ from app.shared.period import (
 )
 from app.shared.period_params import period_range_query
 from app.shared.publication_cycle import resolve_publication_cycle, select_publication_for_period
+from app.shared.units import format_unit_label
 
 router = APIRouter()
 
@@ -93,6 +99,9 @@ def _period_from_fields(
 
 
 def _record_to_normalized(r: RdoRecord) -> RdoNormalizedRecord:
+    # `raw` não entra em `compute_rdo_result` — omitido de propósito para não
+    # disparar um lazy-load coluna a coluna (`load_calculation_rows`/
+    # `load_detail_rows` só trazem as colunas usadas aqui, ver repository.py).
     return RdoNormalizedRecord(
         data_referencia=r.dataReferencia,
         empresa_nome=r.empresaNome,
@@ -102,7 +111,6 @@ def _record_to_normalized(r: RdoRecord) -> RdoNormalizedRecord:
         disciplina=r.disciplina,
         year=r.year,
         month=r.month,
-        raw=r.raw,
     )
 
 
@@ -124,7 +132,7 @@ def _result_out(result: RdoResult) -> RdoResultOut:
         total_preenchendo=result.total_preenchendo,
         units=[
             RdoUnitAggregateOut(
-                name=u.name, emitidos=u.emitidos, aprovados=u.aprovados,
+                name=u.name, code=u.code, emitidos=u.emitidos, aprovados=u.aprovados,
                 aderencia=u.aderencia, excluded=u.excluded,
             )
             for u in result.units
@@ -193,14 +201,15 @@ async def get_rdo(
         result=_result_out(result),
         detalhe=[
             RdoDetalheItemOut(
-                id=r.id, data=r.dataReferencia, unidade=r.empresaNome, grupo=r.grupo, disciplina=r.disciplina,
-                status=r.statusDescricao, relatorio_id=r.relatorioId, edited_manually=r.editedManually,
+                id=r.id, data=r.dataReferencia, unidade=format_unit_label(r.empresaNome), grupo=r.grupo,
+                disciplina=r.disciplina, status=r.statusDescricao, relatorio_id=r.relatorioId,
+                edited_manually=r.editedManually,
             )
             for r in detail_rows
         ],
         detalhe_limitado=total > len(detail_rows),
         filtros=RdoFiltrosOut(
-            unidades=sorted({row[0] for row in filter_options}),
+            unidades=sorted({format_unit_label(row[0]) for row in filter_options}),
             anos=sorted({row[1] for row in filter_options}, reverse=True),
             status=sorted({row[2] for row in filter_options}),
         ),
@@ -489,5 +498,6 @@ register_module(
         to_incremental_records=to_incremental_records,
         delegate_factory=RdoDelegate,
         recalc_indicators=recalc_rdo_indicators,
+        file_import=run_rdo_file_import,
     ),
 )

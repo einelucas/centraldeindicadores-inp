@@ -57,7 +57,12 @@ from app.modules.rnc.schemas import (
     RncResultOut,
     RncUnitAggregateOut,
 )
-from app.modules.rnc.service import normalize_excluded_units, recalc_rnc_indicators, to_incremental_records
+from app.modules.rnc.service import (
+    normalize_excluded_units,
+    recalc_rnc_indicators,
+    run_rnc_file_import,
+    to_incremental_records,
+)
 from app.modules.rnc.types import (
     RNC_DEFAULT_MAX_DIAS,
     RNC_INDICATOR,
@@ -484,5 +489,6 @@ register_module(
         to_incremental_records=to_incremental_records,
         delegate_factory=RncDelegate,
         recalc_indicators=recalc_rnc_indicators,
+        file_import=run_rnc_file_import,
     ),
 )

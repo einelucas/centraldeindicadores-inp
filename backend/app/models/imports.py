@@ -49,9 +49,13 @@ class ImportJob(Base):
         String, ForeignKey("User.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False
     )
     errorMessage: Mapped[str | None] = mapped_column(String, nullable=True)
+    idempotencyKey: Mapped[str | None] = mapped_column(String, nullable=True)
+    """Só populada pelo fluxo novo (`POST /importacoes/{modulo}/arquivos`) —
+    reenvio com a mesma chave devolve o job já concluído em vez de reprocessar."""
 
     batches: Mapped[list[ImportBatch]] = relationship(back_populates="job", cascade="all,delete")
     errors: Mapped[list[ImportError]] = relationship(back_populates="job", cascade="all,delete")
+    files: Mapped[list[ImportFile]] = relationship(back_populates="job", cascade="all,delete")
 
     __table_args__ = (
         Index(
@@ -60,6 +64,7 @@ class ImportJob(Base):
         ),
         Index("ImportJob_userId_idx", "userId"),
         Index("ImportJob_status_idx", "status"),
+        Index("ImportJob_module_idempotencyKey_key", "module", "idempotencyKey", unique=True),
     )
 
 
@@ -85,6 +90,28 @@ class ImportBatch(Base):
     )
 
 
+class ImportFile(Base):
+    """Um registro por arquivo enviado no mesmo `POST
+    /importacoes/{modulo}/arquivos` — só populado pelo fluxo novo (o fluxo
+    antigo, de lote único, não precisa: `ImportJob.fileName` já basta)."""
+
+    __tablename__ = "ImportFile"
+
+    id: Mapped[str] = uuid_pk()
+    importJobId: Mapped[str] = mapped_column(
+        String, ForeignKey("ImportJob.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False
+    )
+    fileName: Mapped[str] = mapped_column(String, nullable=False)
+    found: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    accepted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rejected: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    processedAt: Mapped[datetime] = mapped_column(Timestamp3, nullable=False, default=utcnow)
+
+    job: Mapped[ImportJob] = relationship(back_populates="files")
+
+    __table_args__ = (Index("ImportFile_importJobId_idx", "importJobId"),)
+
+
 class ImportError(Base):
     __tablename__ = "ImportError"
 
@@ -93,6 +120,9 @@ class ImportError(Base):
         String, ForeignKey("ImportJob.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False
     )
     batchNumber: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fileName: Mapped[str | None] = mapped_column(String, nullable=True)
+    """Só populada pelo fluxo novo — o fluxo antigo (lotes já parseados no
+    navegador) não tem noção de arquivo de origem, só de `batchNumber`."""
     rowNumber: Mapped[int | None] = mapped_column(Integer, nullable=True)
     field: Mapped[str | None] = mapped_column(String, nullable=True)
     message: Mapped[str] = mapped_column(String, nullable=False)

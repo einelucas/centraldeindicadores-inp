@@ -43,6 +43,7 @@ def _result_out(result: ScorecardResult) -> ScorecardResultOut:
                 key=r.key, label=r.label, peso=r.peso, meta=r.meta, direction=r.direction, unit=r.unit,
                 value=r.value, **{"pass": r.passed}, pontos=r.pontos,
                 pontos_possiveis=r.pontos_possiveis, has_value=r.has_value,
+                status=r.status, scoring_enabled=r.scoring_enabled,
             )
             for r in result.rows
         ],
@@ -50,6 +51,9 @@ def _result_out(result: ScorecardResult) -> ScorecardResultOut:
         total_peso=result.total_peso,
         pontos_possiveis_mes=result.pontos_possiveis_mes,
         atendimento_mes=result.atendimento_mes,
+        pontos_oficiais_mes=result.pontos_oficiais_mes,
+        pontos_reservados_mes=result.pontos_reservados_mes,
+        cobertura_ativa_pct=result.cobertura_ativa_pct,
     )
 
 

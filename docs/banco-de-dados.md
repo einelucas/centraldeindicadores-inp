@@ -16,8 +16,6 @@ versionado com Alembic. O frontend nunca acessa o banco diretamente.
   competência;
 - `RdoRecord`, `IdpRsoRecord`, `RncRecord`, `FiveSRecord` — registros
   importados dos módulos com importação de arquivo;
-- `AccidentMonthlyRecord`, `AccidentUnitRecord` — lançamentos manuais da
-  Taxa de Acidentes (sem importação de arquivo);
 - `ScorecardSnapshot` — snapshots mensais salvos manualmente do Scorecard;
 - `AppSetting` — metas, listas de exclusão e demais parâmetros por módulo;
 - `AuditLog` — trilha de ações administrativas.
@@ -37,10 +35,26 @@ IDP realmente usa.
 | `rnc.maxPrazoDias` | 15 |
 | `fiveS.target` | 0,90 |
 | `fiveS.excludedUnits` | SP, CSC |
-| `taxa-acidentes.target` | 7,5 |
 
 Editáveis pela tela de Configurações da Administração
 (`PATCH /api/v1/configuracoes`), sem precisar de deploy.
+
+## Taxa de Acidentes (descontinuada)
+
+O módulo Taxa de Acidentes foi removido no alinhamento 2026-alinhamento-v2
+(ver `docs/scorecard.md`) — código, rotas, navegação e as tabelas
+`AccidentMonthlyRecord`/`AccidentUnitRecord` não existem mais depois da
+migration `7c7156aae822_remove_taxa_acidentes`. Resíduos em tabelas
+compartilhadas (`IndicatorPublication`, `IndicatorResult`,
+`IndicatorJustification`, `AppSetting`, `AuditLog`, a chave `taxa_acidentes`
+dentro de `ScorecardSnapshot.raw`) são removidos por uma rotina controlada,
+nunca automaticamente:
+
+```bash
+# a partir de backend/, com o venv ativado
+python scripts/remove_taxa_acidentes_data.py --dry-run   # só relata, não altera nada
+python scripts/remove_taxa_acidentes_data.py --apply     # remove de verdade + aplica a migration
+```
 
 ## Migrations
 

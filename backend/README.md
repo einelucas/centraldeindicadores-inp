@@ -230,7 +230,7 @@ backend/
 │   ├── models/                # SQLAlchemy — mapeiam as tabelas do Postgres
 │   ├── modules/                # um pacote por módulo de negócio
 │   │   ├── imports/             # motor de importação incremental genérico
-│   │   ├── rdo/ idp/ rnc/ cinco_s/ taxa_acidentes/
+│   │   ├── rdo/ idp/ rnc/ cinco_s/
 │   │   ├── scorecard/ dashboard/
 │   │   └── users/ settings/ audit/ indicators/ justifications/
 │   └── shared/                 # period, hashing, normalization, dates, units,

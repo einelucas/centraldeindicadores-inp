@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -54,6 +55,14 @@ class Settings(BaseSettings):
 
     import_batch_size: int = Field(default=500, alias="IMPORT_BATCH_SIZE")
     max_import_records_per_batch: int = Field(default=5000, alias="MAX_IMPORT_RECORDS_PER_BATCH")
+
+    # POST /importacoes/{modulo}/arquivos — upload multipart, parsing no servidor.
+    max_import_files: int = Field(default=10, alias="MAX_IMPORT_FILES")
+    max_import_file_size_bytes: int = Field(default=20 * 1024 * 1024, alias="MAX_IMPORT_FILE_SIZE_BYTES")
+    max_import_total_size_bytes: int = Field(default=100 * 1024 * 1024, alias="MAX_IMPORT_TOTAL_SIZE_BYTES")
+    max_import_rows_per_file: int = Field(default=200_000, alias="MAX_IMPORT_ROWS_PER_FILE")
+    import_file_concurrency: int = Field(default=3, alias="IMPORT_FILE_CONCURRENCY")
+
     max_page_size: int = Field(default=200, alias="MAX_PAGE_SIZE")
     default_page_size: int = Field(default=50, alias="DEFAULT_PAGE_SIZE")
 
@@ -92,11 +101,32 @@ class Settings(BaseSettings):
         return _to_sync_url(url)
 
 
+def _asyncpg_compatible_query(query: str) -> str:
+    """asyncpg aceita `ssl=<disable|allow|prefer|require|verify-ca|verify-full>`
+    (mesmos valores de libpq), mas seu `connect()` não reconhece `sslmode`
+    nem `channel_binding` como kwargs — provedores como Neon devolvem a
+    `DATABASE_URL` no formato libpq (`sslmode=require&channel_binding=require`),
+    que quebra a conexão assíncrona com `TypeError: unexpected keyword
+    argument 'sslmode'`. Traduz `sslmode` -> `ssl` e descarta
+    `channel_binding` (recurso de libpq, sem equivalente no asyncpg). A URL
+    síncrona usada pelo Alembic (`_to_sync_url`, via psycopg) não passa por
+    aqui e continua aceitando os parâmetros originais sem tradução."""
+    pairs = parse_qsl(query, keep_blank_values=True)
+    translated = [
+        ("ssl", value) if key == "sslmode" else (key, value)
+        for key, value in pairs
+        if key != "channel_binding"
+    ]
+    return urlencode(translated)
+
+
 def _to_asyncpg_url(url: str) -> str:
     if url.startswith("postgresql+asyncpg://") or url.startswith("sqlite+aiosqlite://"):
         return url
     if url.startswith("postgresql://"):
-        return "postgresql+asyncpg://" + url[len("postgresql://") :]
+        async_url = "postgresql+asyncpg://" + url[len("postgresql://") :]
+        parts = urlsplit(async_url)
+        return urlunsplit(parts._replace(query=_asyncpg_compatible_query(parts.query)))
     if url.startswith("sqlite://"):
         return "sqlite+aiosqlite://" + url[len("sqlite://") :]
     return url

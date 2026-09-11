@@ -196,47 +196,6 @@ class FiveSRecord(Base):
     )
 
 
-class AccidentMonthlyRecord(Base):
-    __tablename__ = "AccidentMonthlyRecord"
-
-    id: Mapped[str] = uuid_pk()
-    year: Mapped[int] = mapped_column(Integer, nullable=False)
-    month: Mapped[int] = mapped_column(Integer, nullable=False)
-    rate: Mapped[float] = mapped_column(Float, nullable=False)
-    caf: Mapped[int] = mapped_column(Integer, nullable=False)
-    createdAt: Mapped[datetime] = mapped_column(Timestamp3, nullable=False, default=utcnow)
-    updatedAt: Mapped[datetime] = mapped_column(
-        Timestamp3, nullable=False, default=utcnow, onupdate=utcnow
-    )
-
-    __table_args__ = (
-        Index("AccidentMonthlyRecord_year_month_key", "year", "month", unique=True),
-        Index("AccidentMonthlyRecord_year_month_idx", "year", "month"),
-    )
-
-
-class AccidentUnitRecord(Base):
-    __tablename__ = "AccidentUnitRecord"
-
-    id: Mapped[str] = uuid_pk()
-    year: Mapped[int] = mapped_column(Integer, nullable=False)
-    month: Mapped[int] = mapped_column(Integer, nullable=False)
-    unit: Mapped[str] = mapped_column(String, nullable=False)
-    unitKey: Mapped[str] = mapped_column(String, nullable=False)
-    saf: Mapped[int] = mapped_column(Integer, nullable=False)
-    caf: Mapped[int] = mapped_column(Integer, nullable=False)
-    createdAt: Mapped[datetime] = mapped_column(Timestamp3, nullable=False, default=utcnow)
-    updatedAt: Mapped[datetime] = mapped_column(
-        Timestamp3, nullable=False, default=utcnow, onupdate=utcnow
-    )
-
-    __table_args__ = (
-        Index("AccidentUnitRecord_year_month_unitKey_key", "year", "month", "unitKey", unique=True),
-        Index("AccidentUnitRecord_year_month_idx", "year", "month"),
-        Index("AccidentUnitRecord_unit_idx", "unit"),
-    )
-
-
 class ScorecardSnapshot(Base):
     __tablename__ = "ScorecardSnapshot"
 

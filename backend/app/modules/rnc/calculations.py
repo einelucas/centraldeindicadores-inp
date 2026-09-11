@@ -28,7 +28,7 @@ from app.modules.rnc.types import (
     RncUnitAggregate,
 )
 from app.shared.period import MONTH_NAMES, PeriodRange, is_within_period_range
-from app.shared.units import normalize_unit_code
+from app.shared.units import format_unit_label, normalize_unit_code
 
 __all__ = ["average_monthly_rnc_days", "compute_rnc_result", "median"]
 
@@ -185,7 +185,7 @@ def compute_rnc_result(
 
         units.append(
             RncUnitAggregate(
-                name=accum.name,
+                name=format_unit_label(accum.name),
                 criadas=accum.criadas,
                 tratadas=accum.tratadas,
                 aderencia=(accum.tratadas / accum.criadas) if accum.criadas else 0.0,

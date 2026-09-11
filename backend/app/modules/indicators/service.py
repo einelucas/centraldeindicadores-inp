@@ -14,16 +14,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.indicators import IndicatorResult
 
-# Mesmos 6 módulos de `ACTIVE_INDICATOR_MODULES` no TS original. Inclui
-# "taxa-acidentes" e "scorecard", que não têm motor de importação incremental
-# via `/importacoes/**` (ver inventário) — mesmo assim aparecem aqui porque a
+# Módulos ativos de `ACTIVE_INDICATOR_MODULES` no TS original, menos
+# "taxa-acidentes" (indicador removido — ver docs/scorecard.md). Inclui
+# "scorecard", que não tem motor de importação incremental via
+# `/importacoes/**` (ver inventário) — mesmo assim aparece aqui porque a
 # leitura é só da tabela `IndicatorResult`, alimentada por outro caminho.
 ACTIVE_INDICATOR_MODULES: tuple[str, ...] = (
     "rdo",
     "idp",
     "rnc",
     "cinco-s",
-    "taxa-acidentes",
     "scorecard",
 )
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { FileUp, RefreshCw, Save, Send, Settings, Sparkles, Trash2 } from "lucide-vue-next";
 import type { PeriodRange } from "~/types/api";
+import { notifyIndicatorDataChanged } from "~/utils/browser-events";
 import { currentOperationalPeriod, MONTHS, periodToQuery } from "~/utils/period";
 import { formatDate, formatNumber, formatPercent } from "~/utils/format";
 
@@ -38,11 +39,20 @@ const justificationOpen = ref(false);
 const justificationYear = ref(new Date().getFullYear());
 const justificationMonth = ref(new Date().getMonth() + 1);
 const filters = reactive({ q: "", unidade: "", status: "" });
+const unitFilter = ref("all");
+const monthFilter = ref("all");
+const yearFilter = ref("all");
 
 const result = computed<Record<string, unknown>>(() => (data.value?.result as Record<string, unknown>) ?? {});
 const list = (key: string) => Array.isArray(result.value[key]) ? result.value[key] as Array<Record<string, unknown>> : [];
 const details = computed(() => Array.isArray(data.value?.detalhe) ? data.value?.detalhe as Array<Record<string, unknown>> : []);
 const documents = computed(() => Array.isArray(data.value?.documents) ? data.value?.documents as Array<Record<string, unknown>> : []);
+const filterOptions = computed<Record<string, unknown>>(() => (data.value?.filtros as Record<string, unknown> | undefined) ?? {});
+const filteredUnits = computed(() => unitFilter.value === "all" ? list("units") : list("units").filter(row => String(row.name) === unitFilter.value));
+const filteredUnitAverage = computed(() => filteredUnits.value.length ? filteredUnits.value.reduce((sum, row) => sum + Number(row.aderencia ?? 0), 0) / filteredUnits.value.length : 0);
+const availableYears = computed(() => Array.from(new Set(list("months").map(row => Number(row.year)))).filter(Number.isFinite).sort((a, b) => b - a));
+const availableMonths = computed(() => Array.from(new Set(list("months").map(row => Number(row.month)))).filter(Number.isFinite).sort((a, b) => a - b));
+const filteredMonths = computed(() => list("months").filter(row => (yearFilter.value === "all" || Number(row.year) === Number(yearFilter.value)) && (monthFilter.value === "all" || Number(row.month) === Number(monthFilter.value))));
 const filteredDetails = computed(() => details.value.filter(row => {
   const text = JSON.stringify(row).toLocaleLowerCase("pt-BR");
   return (!filters.q || text.includes(filters.q.toLocaleLowerCase("pt-BR"))) && (!filters.unidade || row.unidade === filters.unidade) && (!filters.status || row.status === filters.status);
@@ -145,6 +155,8 @@ async function publish() {
       : { ...base, threshold: target.value };
     await api.post(`/publicacoes/${props.module}`, body);
     showMessage("Painel publicado com sucesso.");
+    notifyIndicatorDataChanged();
+    window.dispatchEvent(new Event(`${props.module}:published`));
   } catch (cause) { showMessage(cause instanceof Error ? cause.message : "Erro ao publicar.", "error"); }
   finally { busy.value = false; }
 }
@@ -181,7 +193,7 @@ onMounted(load);
 
 <template>
   <div class="stack">
-    <section class="surface">
+    <section v-if="module !== 'rdo'" class="surface">
       <header class="surface-header"><div><h2>{{ config.title }}</h2><p>Dados administrativos calculados pelo FastAPI.</p></div>
         <div class="toolbar"><PeriodSelector v-model="period" /><button class="btn btn-icon" :disabled="loading" @click="load"><RefreshCw :size="16" /></button></div>
       </header>
@@ -207,8 +219,8 @@ onMounted(load);
             </div>
           </section>
 
-          <template v-if="module === 'rdo'">
-            <div class="surface-body toolbar surface"><label class="field"><span>Busca</span><input v-model="filters.q" placeholder="ID, grupo ou disciplina" /></label><label class="field"><span>Unidade</span><select v-model="filters.unidade"><option value="">Todas</option><option v-for="unit in (data.filtros as any)?.unidades || []" :key="unit">{{ unit }}</option></select></label><label class="field"><span>Status</span><select v-model="filters.status"><option value="">Todos</option><option v-for="status in (data.filtros as any)?.status || []" :key="status">{{ status }}</option></select></label></div>
+           <template v-if="false">
+             <div class="surface-body toolbar surface"><label class="field"><span>Busca</span><input v-model="filters.q" placeholder="ID, grupo ou disciplina" /></label><label class="field"><span>Unidade</span><select v-model="filters.unidade"><option value="">Todas</option><option v-for="unit in (filterOptions.unidades as string[] | undefined) || []" :key="unit">{{ unit }}</option></select></label><label class="field"><span>Status</span><select v-model="filters.status"><option value="">Todos</option><option v-for="status in (filterOptions.status as string[] | undefined) || []" :key="status">{{ status }}</option></select></label></div>
             <div class="table-wrap"><table class="data-table"><thead><tr><th>Data</th><th>Unidade</th><th>Grupo</th><th>Disciplina</th><th>Status</th><th>ID</th></tr></thead><tbody><tr v-for="row in filteredDetails" :key="String(row.id)"><td>{{ formatDate(row.data) }}</td><td>{{ row.unidade }}</td><td>{{ row.grupo || '—' }}</td><td>{{ row.disciplina || '—' }}</td><td><select v-if="auth.isAdmin" class="input" :value="row.status" @change="editRdoStatus(row, ($event.target as HTMLSelectElement).value)"><option>Aprovado</option><option>Revisar Relatório</option><option>Preenchendo Relatório</option></select><span v-else>{{ row.status }}</span></td><td>{{ row.relatorioId || '—' }}</td></tr></tbody></table></div>
           </template>
 
@@ -227,6 +239,30 @@ onMounted(load);
             <div class="table-wrap"><table class="data-table"><thead><tr><th>Unidade</th><th>RSO</th><th>Competência</th><th>Arquivo</th><th class="numeric">Previsto</th><th class="numeric">Real</th><th class="numeric">Aderência</th></tr></thead><tbody><tr v-for="row in list('unitRows')" :key="`${row.unit}-${row.rsoNumero}`"><td>{{ row.unit }} <span v-if="row.excluded" class="badge">Excluída</span></td><td>{{ row.rsoNumero }}</td><td>{{ MONTHS[Number(row.referenceMonth)-1] }}/{{ row.referenceYear }}</td><td>{{ row.fileName }}</td><td class="numeric">{{ formatNumber(row.prevAcum,2) }}</td><td class="numeric">{{ formatNumber(row.realAcum,2) }}</td><td class="numeric">{{ formatPercent(Number(row.aderencia)*100) }}</td></tr></tbody></table></div>
           </template>
         </template>
+      </div>
+    </section>
+
+    <section v-else class="rdo-admin-panel surface">
+      <div class="rdo-admin-body">
+        <label class="rdo-upload-zone">
+          <span class="rdo-upload-icon"><FileUp :size="21" /></span>
+          <strong>{{ busy ? 'Processando arquivos…' : 'Importar relatórios diários de obra' }}</strong>
+          <small>Selecione uma ou mais planilhas Excel ou CSV exportadas do sistema de RDO.</small>
+          <input type="file" hidden multiple :accept="config.accept" :disabled="busy" @change="selectFiles" />
+        </label>
+        <div v-if="message" class="notice" :class="messageTone">{{ message }}</div>
+        <section class="rdo-admin-context">
+          <div class="rdo-admin-context-head"><div><h3>Contexto de publicação</h3><p>Período e meta usados no cálculo e na publicação do painel.</p></div><div class="rdo-admin-badges"><span>RDO</span><span>{{ data ? 'Dados carregados' : 'Sem dados' }}</span></div></div>
+          <div class="rdo-admin-context-grid"><label class="field"><span>Período operacional</span><PeriodSelector v-model="period" /><small>O período selecionado controla o ciclo publicado.</small></label><label class="field"><span>Meta de aderência (%)</span><input v-model.number="target" type="number" step="0.01" min="0" /><small>Meta padrão do indicador: 80%.</small></label></div>
+          <div class="rdo-admin-actions"><button class="btn" :disabled="loading" @click="load"><RefreshCw :size="14" /> Atualizar</button><button class="btn" @click="justificationOpen = true"><Sparkles :size="14" /> Justificativa</button><button class="btn" @click="exportCurrent('excel')">Exportar Excel</button><button class="btn" @click="exportCurrent('pdf')">Exportar PDF</button><button v-if="canClear" class="btn danger" :disabled="busy" @click="prepareClear"><Trash2 :size="14" /> Limpar registros</button><button v-if="canPublish" class="btn success rdo-publish-action" :disabled="busy || loading || !data" @click="publish"><Send :size="14" /> Publicar painel</button></div>
+        </section>
+        <template v-if="!loading && data">
+          <div class="rdo-admin-metrics"><article><span>Total emitidos</span><strong>{{ formatNumber(result.totalEmitidos) }}</strong><small>Relatórios encontrados</small></article><article class="is-good"><span>Aprovados</span><strong>{{ formatPercent(result.totalEmitidos ? Number(result.totalAprovados) / Number(result.totalEmitidos) * 100 : 0) }}</strong><small>{{ formatNumber(result.totalAprovados) }} relatórios</small></article><article class="is-warn"><span>A revisar</span><strong>{{ formatPercent(result.totalEmitidos ? Number(result.totalRevisar) / Number(result.totalEmitidos) * 100 : 0) }}</strong><small>{{ formatNumber(result.totalRevisar) }} relatórios</small></article><article><span>Preenchendo</span><strong>{{ formatPercent(result.totalEmitidos ? Number(result.totalPreenchendo) / Number(result.totalEmitidos) * 100 : 0) }}</strong><small>{{ formatNumber(result.totalPreenchendo) }} relatórios</small></article></div>
+          <section class="rdo-admin-table-card"><header><div><h3>Aderência por unidade</h3><p>Nº RDO emitidos x aprovados, por obra/unidade.</p></div><label class="field"><span>Unidade</span><select v-model="unitFilter"><option value="all">Todas as unidades</option><option v-for="unit in list('units')" :key="String(unit.name)" :value="String(unit.name)">{{ unit.name }}</option></select></label></header><div class="table-wrap"><table class="data-table rdo-admin-table"><thead><tr><th>Unidade</th><th class="numeric">Emitidos</th><th class="numeric">Aprovados</th><th class="numeric">Aderência</th><th>Situação</th></tr></thead><tbody><tr v-for="unit in filteredUnits" :key="String(unit.name)"><td>{{ unit.name }}</td><td class="numeric">{{ formatNumber(unit.emitidos) }}</td><td class="numeric">{{ formatNumber(unit.aprovados) }}</td><td class="numeric">{{ formatPercent(Number(unit.aderencia) * 100) }}</td><td><span class="badge" :class="unit.excluded ? '' : Number(unit.aderencia) * 100 >= target ? 'good' : 'bad'">{{ unit.excluded ? 'Ignorada' : Number(unit.aderencia) * 100 >= target ? 'Dentro da meta' : 'Abaixo da meta' }}</span></td></tr><tr v-if="filteredUnits.length" class="rdo-admin-average"><td>{{ unitFilter === 'all' ? 'Média das unidades' : 'Unidade selecionada' }}</td><td /><td /><td class="numeric">{{ formatPercent(filteredUnitAverage * 100) }}</td><td /></tr><tr v-if="!filteredUnits.length"><td colspan="5" class="empty-cell">Nenhuma unidade encontrada para o filtro selecionado.</td></tr></tbody></table></div></section>
+          <section class="rdo-admin-table-card"><header><div><h3>Aderência por mês</h3><p>Consolidado mensal de todas as unidades.</p></div><div class="rdo-admin-filter-pair"><label class="field"><span>Mês</span><select v-model="monthFilter"><option value="all">Todos os meses</option><option v-for="month in availableMonths" :key="month" :value="String(month)">{{ MONTHS[month - 1] ?? `Mês ${month}` }}</option></select></label><label class="field"><span>Ano</span><select v-model="yearFilter"><option value="all">Todos</option><option v-for="year in availableYears" :key="year" :value="String(year)">{{ year }}</option></select></label></div></header><div class="table-wrap"><table class="data-table rdo-admin-table"><thead><tr><th>Mês</th><th class="numeric">Emitidos</th><th class="numeric">Aprovados</th><th class="numeric">Aderência</th><th>Situação</th></tr></thead><tbody><tr v-for="month in filteredMonths" :key="`${month.year}-${month.month}`"><td>{{ month.label }}</td><td class="numeric">{{ formatNumber(month.emitidos) }}</td><td class="numeric">{{ formatNumber(month.aprovados) }}</td><td class="numeric">{{ formatPercent(Number(month.aderencia) * 100) }}</td><td><span class="badge" :class="Number(month.aderencia) * 100 >= target ? 'good' : 'bad'">{{ Number(month.aderencia) * 100 >= target ? 'Dentro da meta' : 'Abaixo da meta' }}</span></td></tr><tr v-if="!filteredMonths.length"><td colspan="5" class="empty-cell">Nenhum mês encontrado para os filtros selecionados.</td></tr></tbody></table></div></section>
+        </template>
+        <div v-else-if="!loading" class="rdo-admin-empty"><span>Aguardando dados</span><strong>RDO</strong><p>Importe uma planilha para visualizar os resultados administrativos.</p></div>
+        <div v-if="loading" class="loading-state"><div class="spinner" /></div>
       </div>
     </section>
 

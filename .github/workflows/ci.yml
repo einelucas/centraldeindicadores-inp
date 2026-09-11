@@ -12,18 +12,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: Lint, typecheck, testes e build
+  frontend:
+    name: Frontend (Nuxt) — lint, typecheck, testes e build
     runs-on: ubuntu-latest
-
-    env:
-      # Valores de placeholder: o build não conecta ao banco (páginas são
-      # dinâmicas), mas as libs exigem que as variáveis existam.
-      DATABASE_URL: "postgresql://user:pass@localhost:5432/db?schema=public"
-      DIRECT_URL: "postgresql://user:pass@localhost:5432/db?schema=public"
-      BETTER_AUTH_SECRET: "ci-placeholder-secret-not-used-in-runtime-000000"
-      BETTER_AUTH_URL: "http://localhost:3000"
-      NEXT_PUBLIC_APP_URL: "http://localhost:3000"
+    defaults:
+      run:
+        working-directory: frontend
 
     steps:
       - name: Checkout
@@ -39,12 +33,10 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Instalar dependências
         run: pnpm install --frozen-lockfile
-
-      - name: Gerar Prisma Client
-        run: pnpm db:generate
 
       - name: Lint
         run: pnpm lint
@@ -52,8 +44,78 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Testes unitários e de integração
+      - name: Testes
         run: pnpm test
 
       - name: Build
         run: pnpm build
+
+  backend:
+    name: Backend (FastAPI) — ruff, mypy e testes
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: central
+          POSTGRES_PASSWORD: central
+          POSTGRES_DB: central_ci_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U central"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Banco de CI, descartável a cada execução — nunca aponta para um
+      # ambiente real. Ver `backend/tests/conftest.py` (exige `.env.test`
+      # e recusa truncar qualquer banco cujo nome não termine em `_test`).
+      APP_ENV: test
+      DATABASE_URL: postgresql://central:central@localhost:5432/central_ci_test
+      MIGRATION_DATABASE_URL: postgresql://central:central@localhost:5432/central_ci_test
+      ALLOW_TEST_DB_MIGRATIONS: "true"
+      CORS_ORIGINS: http://localhost:3000
+      DEV_AUTH_ENABLED: "true"
+      LOG_LEVEL: INFO
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências
+        run: python -m pip install -e ".[dev]"
+
+      - name: Gerar .env.test para a suíte (banco descartável do serviço acima)
+        run: |
+          cat > .env.test <<EOF
+          APP_ENV=$APP_ENV
+          DATABASE_URL=$DATABASE_URL
+          MIGRATION_DATABASE_URL=$MIGRATION_DATABASE_URL
+          ALLOW_TEST_DB_MIGRATIONS=$ALLOW_TEST_DB_MIGRATIONS
+          CORS_ORIGINS=$CORS_ORIGINS
+          DEV_AUTH_ENABLED=$DEV_AUTH_ENABLED
+          LOG_LEVEL=$LOG_LEVEL
+          EOF
+
+      - name: Aplicar migrations no banco de teste
+        run: python -m alembic upgrade head
+
+      - name: Lint (ruff)
+        run: python -m ruff check app tests scripts
+
+      - name: Typecheck (mypy)
+        run: python -m mypy app
+
+      - name: Testes
+        run: python -m pytest

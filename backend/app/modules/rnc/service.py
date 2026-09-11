@@ -6,12 +6,19 @@ e o recálculo dos `IndicatorResult` consolidados (`recalc_rnc_indicators`).
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from pydantic import ValidationError
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
+from app.models.records import RncRecord
+from app.modules.imports.bulk_upsert import bulk_upsert
+from app.modules.imports.parsers.base import FileFormatError, FileParseResult
+from app.modules.imports.parsers.rnc import dedupe_rnc_rows, parse_rnc_file, to_rnc_record
+from app.modules.imports.registry import FileImportFileResult, FileImportOutcome, FileRowError
 from app.modules.rnc.calculations import compute_rnc_result
 from app.modules.rnc.keys import rnc_business_key, rnc_content_hash
 from app.modules.rnc.repository import load_all_records, load_rnc_configuration
@@ -21,7 +28,12 @@ from app.shared.dates import parse_flex_date
 from app.shared.incremental_upsert import IncrementalRecord
 from app.shared.units import normalize_unit_code
 
-__all__ = ["normalize_excluded_units", "recalc_rnc_indicators", "to_incremental_records"]
+__all__ = [
+    "normalize_excluded_units",
+    "recalc_rnc_indicators",
+    "run_rnc_file_import",
+    "to_incremental_records",
+]
 
 
 def normalize_excluded_units(excluded_units: list[str]) -> list[str]:
@@ -168,3 +180,126 @@ async def _upsert_indicator_result(
         },
     )
     await session.execute(stmt)
+
+
+_RNC_MUTABLE_COLUMNS = (
+    "contentHash",
+    "statusRnc",
+    "dataSolucao",
+    "tempoTratativa",
+    "raw",
+    "lastImportId",
+)
+
+
+def _build_rnc_insert_row(record: IncrementalRecord, import_id: str) -> dict[str, Any]:
+    data = record.data
+    return {
+        "businessKey": record.business_key,
+        "contentHash": record.content_hash,
+        "statusRnc": data["statusRnc"],
+        "unidade": data["unidade"],
+        "dataCriacao": data["dataCriacao"],
+        "dataSolucao": data.get("dataSolucao"),
+        "tempoTratativa": data.get("tempoTratativa"),
+        "ofensor": data["ofensor"],
+        "year": data["year"],
+        "month": data["month"],
+        "raw": data["raw"],
+        "firstImportId": import_id,
+        "lastImportId": import_id,
+    }
+
+
+async def _parse_rnc_file_safely(
+    semaphore: asyncio.Semaphore, file_name: str, content: bytes
+) -> FileParseResult:
+    async with semaphore:
+        try:
+            return await asyncio.to_thread(parse_rnc_file, content, file_name)
+        except FileFormatError as exc:
+            result = FileParseResult(file_name=file_name)
+            result.errors.append(FileRowError(row=None, field=None, message=str(exc)))
+            return result
+
+
+async def run_rnc_file_import(
+    session: AsyncSession, files: list[tuple[str, bytes]], import_id: str
+) -> FileImportOutcome:
+    """Processa arquivos RNC dentro da transação controlada pelo importador."""
+    settings = get_settings()
+    semaphore = asyncio.Semaphore(max(1, settings.import_file_concurrency))
+    parsed = await asyncio.gather(
+        *(_parse_rnc_file_safely(semaphore, name, content) for name, content in files)
+    )
+
+    for file_result in parsed:
+        if file_result.found > settings.max_import_rows_per_file:
+            file_result.errors.append(
+                FileRowError(
+                    row=None,
+                    field=None,
+                    message=(
+                        f"Arquivo tem {file_result.found} linhas — limite de "
+                        f"{settings.max_import_rows_per_file} por arquivo."
+                    ),
+                )
+            )
+            file_result.rows = []
+
+    all_rows = [row for file_result in parsed for row in file_result.rows]
+    deduped_rows, _duplicates = dedupe_rnc_rows(all_rows)
+    deduped_ids = {id(row) for row in deduped_rows}
+
+    per_file: list[FileImportFileResult] = []
+    raw_records: list[dict[str, Any]] = []
+    for file_result in parsed:
+        accepted = 0
+        errors = list(file_result.errors)
+        for row_index, row in enumerate(file_result.rows, start=2):
+            if id(row) not in deduped_ids:
+                continue
+            converted = to_rnc_record(row)
+            if converted is None:
+                errors.append(
+                    FileRowError(
+                        row=row_index,
+                        field="data_de_criacao",
+                        message="Linha sem data de criação válida.",
+                    )
+                )
+                continue
+            raw_records.append(converted)
+            accepted += 1
+        per_file.append(
+            FileImportFileResult(
+                file_name=file_result.file_name,
+                found=file_result.found,
+                accepted=accepted,
+                rejected=file_result.found - accepted,
+                errors=errors,
+            )
+        )
+
+    incremental_records, schema_rejected = to_incremental_records(raw_records)
+    if schema_rejected and per_file:
+        per_file[0].accepted = max(0, per_file[0].accepted - schema_rejected)
+        per_file[0].rejected += schema_rejected
+
+    upsert_outcome = await bulk_upsert(
+        session,
+        RncRecord,
+        incremental_records,
+        import_id=import_id,
+        build_insert_row=_build_rnc_insert_row,
+        mutable_columns=_RNC_MUTABLE_COLUMNS,
+    )
+    await recalc_rnc_indicators(session)
+
+    return FileImportOutcome(
+        inserted=upsert_outcome.inserted,
+        updated=upsert_outcome.updated,
+        ignored=upsert_outcome.ignored,
+        rejected=sum(file.rejected for file in per_file),
+        files=per_file,
+    )

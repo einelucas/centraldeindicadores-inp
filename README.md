@@ -7,12 +7,17 @@ publicações e consolida o desempenho do ciclo em um scorecard.
 
 ## Indicadores disponíveis
 
-1. **RDO** — aprovação de relatórios diários de obra;
-2. **IDP** — aderência ao cronograma por disciplina;
-3. **RNC** — prazo e aderência de tratativa de não conformidades;
-4. **5S** — aderência do programa 5S por unidade;
-5. **Taxa de Acidentes** — frequência de acidentes por unidade;
-6. **Scorecard** — consolida os cinco indicadores acima por ciclo semestral.
+1. **RDO** — aprovação de relatórios diários de obra (peso 35% no Scorecard);
+2. **IDP** — aderência ao cronograma por disciplina (peso 40%);
+3. **RNC** — prazo e aderência de tratativa de não conformidades (peso 15%);
+4. **Horas Extras Pagas** — peso 10% já reservado no Scorecard, indicador
+   ainda em desenvolvimento (sem fórmula/fonte definida, não contabilizado);
+5. **5S** — aderência do programa 5S por unidade (aba própria, fora do
+   Scorecard);
+6. **Scorecard** — consolida os quatro indicadores oficiais acima por ciclo
+   semestral.
+
+A Taxa de Acidentes foi descontinuada e removida da aplicação.
 
 Veja `docs/modulos.md` para o que cada um calcula e `docs/scorecard.md`
 para as regras de pontuação.

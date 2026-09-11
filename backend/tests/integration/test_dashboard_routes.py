@@ -47,11 +47,11 @@ async def test_dashboard_percentages_scale_with_available_months(client, auth_he
     assert body["pontuacaoPrevistaSemestre"] == 11582
     # 2 meses com dado -> pool mensal * 2, não o semestre completo de 6 meses.
     assert body["pontuacaoPrevista"] == pytest.approx(2 * (11582 / 6), rel=1e-9)
-    # RDO (peso 25%) passou nos 2 meses -> pontosRealizados = 2 * (11582/6) * 0.25.
-    expected_pontos = 2 * (11582 / 6) * 0.25
+    # RDO (peso 35%) passou nos 2 meses -> pontosRealizados = 2 * (11582/6) * 0.35.
+    expected_pontos = 2 * (11582 / 6) * 0.35
     assert body["pontosRealizados"] == pytest.approx(expected_pontos, rel=1e-9)
     # percentualDadosDisponiveis é contra os 2 meses disponíveis (denominador menor).
-    assert body["percentualDadosDisponiveis"] == pytest.approx(25.0, rel=1e-6)
+    assert body["percentualDadosDisponiveis"] == pytest.approx(35.0, rel=1e-6)
     # percentualSemestreCompleto é sempre contra os 11.582 pontos cheios (denominador maior).
     assert body["percentualSemestreCompleto"] < body["percentualDadosDisponiveis"]
 

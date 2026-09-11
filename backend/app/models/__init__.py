@@ -8,11 +8,9 @@ e replicam o schema Prisma, não a convenção usual do Python.
 """
 
 from app.models.audit import AuditLog
-from app.models.imports import ImportBatch, ImportError, ImportJob, ImportStatus
+from app.models.imports import ImportBatch, ImportError, ImportFile, ImportJob, ImportStatus
 from app.models.indicators import IndicatorJustification, IndicatorPublication, IndicatorResult
 from app.models.records import (
-    AccidentMonthlyRecord,
-    AccidentUnitRecord,
     FiveSRecord,
     IdpRecord,
     IdpRsoRecord,
@@ -27,13 +25,12 @@ __all__ = [
     "AuditLog",
     "ImportBatch",
     "ImportError",
+    "ImportFile",
     "ImportJob",
     "ImportStatus",
     "IndicatorJustification",
     "IndicatorPublication",
     "IndicatorResult",
-    "AccidentMonthlyRecord",
-    "AccidentUnitRecord",
     "FiveSRecord",
     "IdpRecord",
     "IdpRsoRecord",
