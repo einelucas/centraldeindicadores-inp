@@ -6,7 +6,7 @@ import {
   useReadingContextCycle,
 } from "~/composables/useReadingContextCycle";
 import { usePanelPdfExport } from "~/composables/usePanelPdfExport";
-import { MONTHS, yearSemesterFromCycle } from "~/utils/period";
+import { isWithinPeriodRange, MONTHS, yearSemesterFromCycle } from "~/utils/period";
 import { formatDate } from "~/utils/format";
 import { formatUnitLabel, normalizeUnitCode } from "~/logic/lib/units";
 import { INDICATOR_DATA_CHANGED_EVENT } from "~/utils/browser-events";
@@ -15,6 +15,7 @@ const api = useApi();
 
 const publication = ref<PublicationEnvelope["publication"]>(null);
 const adminResult = ref<Record<string, unknown> | null>(null);
+const unitsInPeriod = ref<string[]>([]);
 const loading = ref(true);
 const unitLoading = ref(false);
 const error = ref("");
@@ -175,7 +176,10 @@ const availableUnits = computed(() => {
   const rows = Array.isArray(payload.value.unidades)
     ? (payload.value.unidades as Array<Record<string, unknown>>)
     : [];
-  return rows.map((row) => String(row.n ?? ""));
+  return [
+    ...rows.map((row) => String(row.n ?? "")),
+    ...unitsInPeriod.value,
+  ];
 });
 
 function disciplineValue(value: number | null): string {
@@ -236,12 +240,41 @@ async function loadUnitData() {
   }
 }
 
+async function loadUnitOptions() {
+  try {
+    const body = await api.get<{
+      documents: Array<{
+        unit: string;
+        referenceYear: number;
+        referenceMonth: number;
+      }>;
+    }>(
+      "/idp",
+      Object.fromEntries(
+        new URLSearchParams(periodQueryString(cycle.value)),
+      ),
+    );
+    unitsInPeriod.value = body.documents
+      .filter((document) =>
+        isWithinPeriodRange(
+          document.referenceYear,
+          document.referenceMonth,
+          cycle.value,
+        ),
+      )
+      .map((document) => document.unit);
+  } catch {
+    // O payload publicado continua servindo como fallback para o seletor.
+    unitsInPeriod.value = [];
+  }
+}
+
 async function handleExportPdf() {
   await exportPdf(`IDP_painel_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 async function refresh() {
-  await load();
+  await Promise.all([load(), loadUnitOptions()]);
   await loadUnitData();
 }
 
