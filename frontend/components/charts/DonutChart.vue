@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { formatNumber } from "~/utils/format";
+
 interface DonutItem {
   label: string;
   value: number;
@@ -20,6 +22,7 @@ const props = withDefaults(
 );
 
 const hovered = ref<string | null>(null);
+const formatValue = (value: number) => formatNumber(value, props.suffix === "%" ? 1 : 2);
 
 const safeItems = computed(() =>
   props.items.map((item) => ({
@@ -53,7 +56,7 @@ const segments = computed(() => {
      * mais próxima de cada percentual mantém praticamente o mesmo afastamento
      * do anel, inclusive nas laterais, onde os rótulos são mais largos.
      */
-    const labelText = `${item.value}${props.suffix}`;
+    const labelText = `${formatValue(item.value)}${props.suffix}`;
     const outerRadius = 47;
     const labelGap = 5;
     const halfTextWidth = labelText.length * 2.2;
@@ -87,7 +90,7 @@ const segments = computed(() => {
 });
 
 const ariaLabel = computed(() =>
-  props.items.map((item) => `${item.label}: ${item.value}${props.suffix}`).join(", "),
+  props.items.map((item) => `${item.label}: ${formatValue(item.value)}${props.suffix}`).join(", "),
 );
 </script>
 
@@ -118,7 +121,7 @@ const ariaLabel = computed(() =>
           @mouseenter="hovered = segment.label"
           @mouseleave="hovered = null"
         >
-          <title>{{ segment.label }}: {{ segment.value }}{{ suffix }}</title>
+          <title>{{ segment.label }}: {{ formatValue(segment.value) }}{{ suffix }}</title>
         </circle>
 
         <!-- Valores posicionados ao redor do donut -->
@@ -173,7 +176,7 @@ const ariaLabel = computed(() =>
           {{ item.label }}
         </span>
 
-        <strong v-if="showLegendValues"> {{ item.value }}{{ suffix }} </strong>
+        <strong v-if="showLegendValues"> {{ formatValue(item.value) }}{{ suffix }} </strong>
       </button>
     </div>
   </div>

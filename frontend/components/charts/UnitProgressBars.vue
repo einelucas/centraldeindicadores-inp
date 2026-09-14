@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { formatNumber } from "~/utils/format";
+
 interface ProgressItem {
   label: string;
   value: number;
@@ -24,6 +26,7 @@ const props = withDefaults(
 );
 
 const hoveredLabel = ref<string | null>(null);
+const formatValue = (value: number) => formatNumber(value, props.suffix === "%" ? 1 : 2);
 
 const isOk = (value: number) => props.target === null || value >= props.target;
 const colorFor = (value: number) => (isOk(value) ? props.okColor : props.badColor);
@@ -57,7 +60,7 @@ const widthFor = (value: number) => `${Math.min(100, Math.max(0, value))}%`;
         </div>
 
         <div class="uval" :style="{ color: colorFor(item.value) }">
-          {{ item.value }}{{ suffix }}
+          {{ formatValue(item.value) }}{{ suffix }}
         </div>
       </div>
     </template>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { formatNumber } from "~/utils/format";
+
 interface LinePoint {
   label: string;
   value: number | null;
@@ -23,6 +25,7 @@ const props = withDefaults(
 );
 
 const hoveredIndex = ref<number | null>(null);
+const formatValue = (value: number) => formatNumber(value, props.suffix === "%" ? 1 : 2);
 
 /*
  * Dimensões internas.
@@ -285,7 +288,7 @@ const tooltipStyle = computed(() => {
           text-anchor="end"
           class="chart-target-label"
         >
-          Meta {{ target }}{{ suffix }}
+          Meta {{ formatValue(target) }}{{ suffix }}
         </text>
       </template>
 
@@ -324,7 +327,7 @@ const tooltipStyle = computed(() => {
             @mouseenter="hoveredIndex = index"
             @mouseleave="hoveredIndex = null"
           >
-            <title>{{ point.label }}: {{ point.value }}{{ suffix }}</title>
+            <title>{{ point.label }}: {{ formatValue(point.value) }}{{ suffix }}</title>
           </circle>
         </template>
 
@@ -358,11 +361,11 @@ const tooltipStyle = computed(() => {
       <div class="chart-tooltip-title">{{ hoveredPoint.label }}</div>
       <div class="chart-tooltip-row">
         <span class="chart-tooltip-dot" :style="{ backgroundColor: color }" />
-        <span>{{ seriesLabel }}: <strong>{{ hoveredPoint.value }}{{ suffix }}</strong></span>
+        <span>{{ seriesLabel }}: <strong>{{ formatValue(hoveredPoint.value) }}{{ suffix }}</strong></span>
       </div>
       <div v-if="target !== null" class="chart-tooltip-row">
         <span class="chart-tooltip-dot" style="background-color: #eaa239" />
-        <span>Meta: <strong>{{ target }}{{ suffix }}</strong></span>
+        <span>Meta: <strong>{{ formatValue(target) }}{{ suffix }}</strong></span>
       </div>
     </div>
 
