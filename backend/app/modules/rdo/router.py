@@ -81,7 +81,7 @@ from app.shared.period import (
 )
 from app.shared.period_params import period_range_query
 from app.shared.publication_cycle import resolve_publication_cycle, select_publication_for_period
-from app.shared.units import format_unit_label
+from app.shared.units import format_unit_label, normalize_unit_code
 
 router = APIRouter()
 
@@ -161,8 +161,7 @@ async def get_rdo(
     current_user: CurrentUser = Depends(require_permission(Permission.INDICATORS_READ)),
 ) -> RdoGetOut:
     filters = []
-    if unidade:
-        filters.append(RdoRecord.empresaNome == unidade)
+    selected_unit = normalize_unit_code(unidade) if unidade else ""
     if status:
         filters.append(RdoRecord.statusDescricao == status)
     if q:
@@ -186,8 +185,29 @@ async def get_rdo(
         threshold_fraction = min(1.0, max(0.0, raw))
 
     calculation_rows = await load_calculation_rows(session, filters)
-    detail_rows = await load_detail_rows(session, filters, limit=1000)
-    total = await count_records(session, filters)
+    if selected_unit:
+        # `empresaNome` preserva o texto bruto da planilha (por exemplo,
+        # "INPASA DOURADOS", "DRD" ou "Dourados"). Uma igualdade SQL com
+        # o rótulo exibido no seletor não encontra todas essas variantes.
+        # A comparação canônica mantém o mesmo contrato usado nos cálculos.
+        calculation_rows = [
+            row
+            for row in calculation_rows
+            if normalize_unit_code(row.empresaNome) == selected_unit
+        ]
+
+    detail_rows = await load_detail_rows(
+        session, filters, limit=None if selected_unit else 1000
+    )
+    if selected_unit:
+        detail_rows = [
+            row
+            for row in detail_rows
+            if normalize_unit_code(row.empresaNome) == selected_unit
+        ][:1000]
+        total = len(calculation_rows)
+    else:
+        total = await count_records(session, filters)
     filter_options = await load_filter_options(session)
     last_import = await load_last_import(session)
     configuration = await load_rdo_configuration(session)

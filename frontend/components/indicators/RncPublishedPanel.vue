@@ -16,8 +16,11 @@ const api = useApi();
 const publication = ref<PublicationEnvelope["publication"]>(null);
 const adminResult = ref<Record<string, unknown> | null>(null);
 const loading = ref(true);
+const unitLoading = ref(false);
 const error = ref("");
+const unitError = ref("");
 const selectedUnit = ref("all");
+let unitRequestId = 0;
 const { cycle, setPeriod } = useReadingContextCycle();
 const period = computed<PeriodRange>({
   get: () => cycle.value,
@@ -38,37 +41,43 @@ const payload = computed<Record<string, unknown>>(
 const numberValue = (value: unknown, fallback = 0) =>
   typeof value === "number" ? value : Number(value ?? fallback);
 
+const isUnitSelected = computed(() => selectedUnit.value !== "all");
 const result = computed(() =>
-  numberValue(adminResult.value?.resultadoDias ?? payload.value.resultado),
+  numberValue(
+    isUnitSelected.value
+      ? adminResult.value?.resultadoDias
+      : payload.value.resultado,
+  ),
 );
 const meta = computed(() =>
   numberValue(
-    adminResult.value?.metaDias ??
-      payload.value.meta ??
-      publication.value?.target,
+    (isUnitSelected.value ? adminResult.value?.metaDias : null) ??
+      payload.value.meta ?? publication.value?.target,
     15,
   ),
 );
 const resolved = computed(() =>
   numberValue(
-    adminResult.value?.totalTratadas ?? payload.value.semestreResolvidas,
+    isUnitSelected.value
+      ? adminResult.value?.totalTratadas
+      : payload.value.semestreResolvidas,
   ),
 );
 const total = computed(() =>
-  numberValue(adminResult.value?.totalCriadas ?? payload.value.semestreTotal),
+  numberValue(
+    isUnitSelected.value
+      ? adminResult.value?.totalCriadas
+      : payload.value.semestreTotal,
+  ),
 );
 const semesterPercent = computed(() =>
   total.value ? Math.round((resolved.value / total.value) * 100) : 0,
 );
-const displayedResult = computed(() =>
-  selectedUnit.value === "all"
-    ? result.value
-    : (units.value[0]?.value ?? result.value),
-);
+const displayedResult = computed(() => result.value);
 const resultOk = computed(() => displayedResult.value <= meta.value);
 const monthly = computed(() => {
   const rows =
-    selectedUnit.value !== "all" && Array.isArray(adminResult.value?.months)
+    isUnitSelected.value && Array.isArray(adminResult.value?.months)
       ? (adminResult.value.months as Array<Record<string, unknown>>)
       : Array.isArray(payload.value.mensal)
         ? (payload.value.mensal as Array<Record<string, unknown>>)
@@ -83,20 +92,20 @@ const monthly = computed(() => {
 const offenders = computed(() => {
   const colors = ["#304f7e", "#eaa239", "#609346", "#bdbfc1", "#7b5ea7"];
   const rows =
-    selectedUnit.value !== "all" && Array.isArray(adminResult.value?.ofensores)
+    isUnitSelected.value && Array.isArray(adminResult.value?.ofensores)
       ? (adminResult.value.ofensores as Array<Record<string, unknown>>)
       : Array.isArray(payload.value.ofensores)
         ? (payload.value.ofensores as Array<Record<string, unknown>>)
         : [];
   return rows.map((row, index) => ({
-    label: String(row.n ?? ""),
-    value: numberValue(row.pct),
+    label: String(row.n ?? row.name ?? ""),
+    value: numberValue(row.pct) * (isUnitSelected.value ? 100 : 1),
     color: colors[index % colors.length] ?? "#304f7e",
   }));
 });
 const units = computed(() => {
   const rows =
-    selectedUnit.value !== "all" && Array.isArray(adminResult.value?.units)
+    isUnitSelected.value && Array.isArray(adminResult.value?.units)
       ? (adminResult.value.units as Array<Record<string, unknown>>)
       : Array.isArray(payload.value.unidades)
         ? (payload.value.unidades as Array<Record<string, unknown>>)
@@ -104,8 +113,8 @@ const units = computed(() => {
   return rows
     .filter(
       (row) =>
-        selectedUnit.value === "all" ||
-        normalizeUnitCode(row.n) === selectedUnit.value,
+        !isUnitSelected.value ||
+        normalizeUnitCode(row.n ?? row.name) === selectedUnit.value,
     )
     .map((row) => ({
       label: formatRncUnitLabel(String(row.n ?? row.name ?? "")),
@@ -139,10 +148,16 @@ async function load() {
 }
 
 async function loadUnitData() {
-  if (selectedUnit.value === "all") {
+  const requestId = ++unitRequestId;
+  if (!isUnitSelected.value) {
     adminResult.value = null;
+    unitLoading.value = false;
+    unitError.value = "";
     return;
   }
+  adminResult.value = null;
+  unitLoading.value = true;
+  unitError.value = "";
   try {
     const body = await api.get<{ result: Record<string, unknown> }>("/rnc", {
       ...Object.fromEntries(
@@ -151,9 +166,17 @@ async function loadUnitData() {
       meta: meta.value,
       unidade: formatRncUnitLabel(selectedUnit.value),
     });
-    adminResult.value = body.result;
-  } catch {
-    adminResult.value = null;
+    if (requestId === unitRequestId) adminResult.value = body.result;
+  } catch (cause) {
+    if (requestId === unitRequestId) {
+      adminResult.value = null;
+      unitError.value =
+        cause instanceof Error
+          ? cause.message
+          : "Falha ao carregar os dados da unidade.";
+    }
+  } finally {
+    if (requestId === unitRequestId) unitLoading.value = false;
   }
 }
 
@@ -161,25 +184,23 @@ async function handleExportPdf() {
   await exportPdf(`RNC_painel_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
-watch(
-  cycle,
-  () => {
-    void load();
-    void loadUnitData();
-  },
-  { deep: true },
-);
+async function refresh() {
+  await load();
+  await loadUnitData();
+}
+
+watch(cycle, refresh, { deep: true });
 watch(selectedUnit, () => {
   void loadUnitData();
 });
 onMounted(() => {
-  void load();
-  window.addEventListener(INDICATOR_DATA_CHANGED_EVENT, load);
-  window.addEventListener("rnc:published", load);
+  void refresh();
+  window.addEventListener(INDICATOR_DATA_CHANGED_EVENT, refresh);
+  window.addEventListener("rnc:published", refresh);
 });
 onBeforeUnmount(() => {
-  window.removeEventListener(INDICATOR_DATA_CHANGED_EVENT, load);
-  window.removeEventListener("rnc:published", load);
+  window.removeEventListener(INDICATOR_DATA_CHANGED_EVENT, refresh);
+  window.removeEventListener("rnc:published", refresh);
 });
 </script>
 
@@ -228,6 +249,20 @@ onBeforeUnmount(() => {
             Escolha outro ano ou semestre acima, ou publique os dados na área de
             Administração.
           </p>
+        </div>
+      </div>
+
+      <div v-else-if="unitLoading" class="loading-state">
+        <div class="spinner" />
+      </div>
+
+      <div v-else-if="unitError" class="error-state">
+        <div>
+          <h3>Não foi possível carregar a unidade</h3>
+          <p>{{ unitError }}</p>
+          <button class="btn mt-3" type="button" @click="loadUnitData">
+            Tentar novamente
+          </button>
         </div>
       </div>
 

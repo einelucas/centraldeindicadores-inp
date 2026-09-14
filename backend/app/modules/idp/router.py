@@ -79,7 +79,6 @@ from app.shared.period import (
     period_range_predicate,
 )
 from app.shared.period_params import period_range_query
-from app.shared.units import normalize_unit_code
 from app.shared.publication_cycle import resolve_publication_cycle, select_publication_for_period
 from app.shared.units import format_unit_label, normalize_unit_code
 

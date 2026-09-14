@@ -16,8 +16,11 @@ const api = useApi();
 const publication = ref<PublicationEnvelope["publication"]>(null);
 const adminResult = ref<Record<string, unknown> | null>(null);
 const loading = ref(true);
+const unitLoading = ref(false);
 const error = ref("");
+const unitError = ref("");
 const selectedUnit = ref("all");
+let unitRequestId = 0;
 
 const { cycle, setPeriod } = useReadingContextCycle();
 
@@ -49,66 +52,104 @@ const numberOrNull = (value: unknown): number | null =>
       ? null
       : Number(value);
 
+const isUnitSelected = computed(() => selectedUnit.value !== "all");
 const result = computed(() =>
   Math.round(
-    numberValue(adminResult.value?.aderenciaGeral ?? payload.value.resultado),
+    isUnitSelected.value
+      ? numberValue(adminResult.value?.aderenciaGeral) * 100
+      : numberValue(payload.value.resultado),
   ),
 );
 const meta = computed(() =>
   numberValue(payload.value.meta ?? publication.value?.target),
 );
-const displayedResult = computed(() =>
-  selectedUnit.value === "all"
-    ? result.value
-    : (units.value[0]?.value ?? result.value),
-);
+const displayedResult = computed(() => result.value);
 const resultOk = computed(() => displayedResult.value >= meta.value);
-const civil = computed(() => numberOrNull(payload.value.civil));
-const mecanica = computed(() => numberOrNull(payload.value.mecanica));
-const eletrica = computed(() => numberOrNull(payload.value.eletrica));
+const disciplineRows = computed(() =>
+  isUnitSelected.value && Array.isArray(adminResult.value?.disciplineRows)
+    ? (adminResult.value.disciplineRows as Array<Record<string, unknown>>)
+    : [],
+);
+const disciplineResult = (name: string, publishedValue: unknown) => {
+  if (!isUnitSelected.value) return numberOrNull(publishedValue);
+  const row = disciplineRows.value.find((item) => item.disciplina === name);
+  const adherence = numberOrNull(row?.aderencia);
+  return adherence === null ? null : adherence * 100;
+};
+const civil = computed(() => disciplineResult("01 - Civil", payload.value.civil));
+const mecanica = computed(() =>
+  disciplineResult("02 - Mecânica", payload.value.mecanica),
+);
+const eletrica = computed(() =>
+  disciplineResult("04 - Elétrica", payload.value.eletrica),
+);
 const selectedYear = computed(() =>
-  numberValue(
-    payload.value.selectedYear,
-    publication.value
-      ? new Date(publication.value.publishedAt).getFullYear()
-      : 0,
-  ),
+  isUnitSelected.value
+    ? numberValue(adminResult.value?.selectedYear)
+    : numberValue(
+        payload.value.selectedYear,
+        publication.value
+          ? new Date(publication.value.publishedAt).getFullYear()
+          : 0,
+      ),
 );
 const selectedMonth = computed(() =>
-  numberValue(payload.value.selectedMonth ?? payload.value.monthEnd, 12),
+  isUnitSelected.value
+    ? numberValue(adminResult.value?.selectedMonth)
+    : numberValue(payload.value.selectedMonth ?? payload.value.monthEnd, 12),
 );
 const documentosAtivos = computed(() =>
-  numberValue(payload.value.documentosAtivos),
+  numberValue(
+    isUnitSelected.value
+      ? adminResult.value?.activeDocuments
+      : payload.value.documentosAtivos,
+  ),
 );
 
 const monthly = computed(() => {
   const rows =
-    selectedUnit.value !== "all" && Array.isArray(adminResult.value?.monthly)
+    isUnitSelected.value && Array.isArray(adminResult.value?.monthly)
       ? (adminResult.value.monthly as Array<Record<string, unknown>>)
       : Array.isArray(payload.value.mensal)
         ? (payload.value.mensal as Array<Record<string, unknown>>)
         : [];
-  return rows.map((row) => ({
-    label: String(row.label ?? ""),
-    value: numberOrNull(row.v ?? Number(row.aderencia ?? 0) * 100),
-  }));
+  return rows
+    .filter(
+      (row) =>
+        !isUnitSelected.value ||
+        (numberValue(row.activeDocuments) > 0 && row.aderencia !== null),
+    )
+    .map((row) => ({
+      label: String(row.label ?? ""),
+      value: isUnitSelected.value
+        ? numberOrNull(Number(row.aderencia) * 100)
+        : numberOrNull(row.v),
+    }));
 });
 
 const disciplineChartData = computed(() => {
-  const rows = Array.isArray(payload.value.disciplinas)
-    ? (payload.value.disciplinas as Array<Record<string, unknown>>)
-    : [];
+  const rows = isUnitSelected.value
+    ? disciplineRows.value
+    : Array.isArray(payload.value.disciplinas)
+      ? (payload.value.disciplinas as Array<Record<string, unknown>>)
+      : [];
   return rows
-    .filter((row) => row.v !== null && row.v !== undefined)
+    .filter((row) =>
+      isUnitSelected.value
+        ? row.aderencia !== null && row.aderencia !== undefined
+        : row.v !== null && row.v !== undefined,
+    )
     .map((row) => ({
-      label: String(row.n ?? "").replace(/^\d+\s*-\s*/, ""),
-      value: numberValue(row.v),
+      label: String(row.n ?? row.disciplina ?? "").replace(/^\d+\s*-\s*/, ""),
+      value: isUnitSelected.value
+        ? numberValue(row.aderencia) * 100
+        : numberValue(row.v),
     }));
 });
 
 const units = computed(() => {
   const rows =
-    selectedUnit.value !== "all" && Array.isArray(adminResult.value?.unitRows)
+    isUnitSelected.value && Array.isArray(adminResult.value?.unitRows)
       ? (adminResult.value.unitRows as Array<Record<string, unknown>>)
       : Array.isArray(payload.value.unidades)
         ? (payload.value.unidades as Array<Record<string, unknown>>)
@@ -116,8 +157,13 @@ const units = computed(() => {
   return rows
     .filter(
       (row) =>
-        selectedUnit.value === "all" ||
+        !isUnitSelected.value ||
         normalizeUnitCode(row.n ?? row.unit) === selectedUnit.value,
+    )
+    .filter((row) =>
+      isUnitSelected.value
+        ? row.aderencia !== null && row.aderencia !== undefined
+        : row.v !== null && row.v !== undefined,
     )
     .map((row) => ({
       label: formatUnitLabel(String(row.n ?? row.unit ?? "")),
@@ -159,10 +205,16 @@ async function load() {
 }
 
 async function loadUnitData() {
-  if (selectedUnit.value === "all") {
+  const requestId = ++unitRequestId;
+  if (!isUnitSelected.value) {
     adminResult.value = null;
+    unitLoading.value = false;
+    unitError.value = "";
     return;
   }
+  adminResult.value = null;
+  unitLoading.value = true;
+  unitError.value = "";
   try {
     const body = await api.get<{ result: Record<string, unknown> }>("/idp", {
       ...Object.fromEntries(
@@ -170,9 +222,17 @@ async function loadUnitData() {
       ),
       unidade: formatUnitLabel(selectedUnit.value),
     });
-    adminResult.value = body.result;
-  } catch {
-    adminResult.value = null;
+    if (requestId === unitRequestId) adminResult.value = body.result;
+  } catch (cause) {
+    if (requestId === unitRequestId) {
+      adminResult.value = null;
+      unitError.value =
+        cause instanceof Error
+          ? cause.message
+          : "Falha ao carregar os dados da unidade.";
+    }
+  } finally {
+    if (requestId === unitRequestId) unitLoading.value = false;
   }
 }
 
@@ -180,25 +240,23 @@ async function handleExportPdf() {
   await exportPdf(`IDP_painel_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
-watch(
-  cycle,
-  () => {
-    void load();
-    void loadUnitData();
-  },
-  { deep: true },
-);
+async function refresh() {
+  await load();
+  await loadUnitData();
+}
+
+watch(cycle, refresh, { deep: true });
 watch(selectedUnit, () => {
   void loadUnitData();
 });
 
 onMounted(() => {
-  void load();
-  window.addEventListener(INDICATOR_DATA_CHANGED_EVENT, load);
+  void refresh();
+  window.addEventListener(INDICATOR_DATA_CHANGED_EVENT, refresh);
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener(INDICATOR_DATA_CHANGED_EVENT, load);
+  window.removeEventListener(INDICATOR_DATA_CHANGED_EVENT, refresh);
 });
 </script>
 
@@ -250,6 +308,20 @@ onBeforeUnmount(() => {
             Escolha outro ano ou semestre acima, ou publique os dados na área de
             Administração.
           </p>
+        </div>
+      </div>
+
+      <div v-else-if="unitLoading" class="loading-state">
+        <div class="spinner" />
+      </div>
+
+      <div v-else-if="unitError" class="error-state">
+        <div>
+          <h3>Não foi possível carregar a unidade</h3>
+          <p>{{ unitError }}</p>
+          <button class="btn mt-3" type="button" @click="loadUnitData">
+            Tentar novamente
+          </button>
         </div>
       </div>
 

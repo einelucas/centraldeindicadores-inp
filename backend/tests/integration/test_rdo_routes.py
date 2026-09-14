@@ -61,6 +61,33 @@ async def test_import_then_get_rdo(client, auth_header) -> None:
     assert body["result"]["totalAprovados"] == 2
 
 
+async def test_get_rdo_filters_canonical_unit_and_its_available_months(client, auth_header) -> None:
+    records = [
+        _rdo_row("D1", "Aprovado", empresa="INPASA DOURADOS", day=1),
+        {
+            **_rdo_row("D2", "Revisar Relatório", empresa="DRD", day=2),
+            "dataReferencia": "2027-04-02T00:00:00",
+            "month": 4,
+        },
+        _rdo_row("M1", "Aprovado", empresa="NOVA MUTUM", day=3),
+    ]
+    await _import_records(client, auth_header, records)
+
+    response = await client.get(
+        "/api/v1/rdo?unidade=DOURADOS"
+        "&periodStartYear=2027&periodStartMonth=3&periodEndYear=2027&periodEndMonth=5",
+        headers=auth_header("VIEWER"),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert body["result"]["totalEmitidos"] == 2
+    assert body["result"]["totalAprovados"] == 1
+    assert [month["label"] for month in body["result"]["months"]] == ["Mar/2027", "Abr/2027"]
+    assert [unit["code"] for unit in body["result"]["units"]] == ["DRD"]
+
+
 async def test_reimport_is_idempotent(client, auth_header, db_session) -> None:
     records = [_rdo_row("R1", "Aprovado")]
     await _import_records(client, auth_header, records)

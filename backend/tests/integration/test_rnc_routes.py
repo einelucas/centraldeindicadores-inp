@@ -87,6 +87,37 @@ async def test_import_then_get_rnc(client, auth_header) -> None:
     assert month["dentroMeta"] is True
 
 
+async def test_get_rnc_filters_canonical_unit_and_its_available_months(client, auth_header) -> None:
+    records = [
+        _rnc_row(
+            status="TRATADA", unidade="INPASA DOURADOS", day=1,
+            data_solucao="2027-03-10T00:00:00", tempo_tratativa=9,
+        ),
+        _rnc_row(
+            status="TRATADA", unidade="DRD", day=2, month=4,
+            data_solucao="2027-04-12T00:00:00", tempo_tratativa=10,
+        ),
+        _rnc_row(
+            status="TRATADA", unidade="NOVA MUTUM", day=3,
+            data_solucao="2027-03-15T00:00:00", tempo_tratativa=12,
+        ),
+    ]
+    await _import_records(client, auth_header, records)
+
+    response = await client.get(
+        "/api/v1/rnc?unidade=DOURADOS"
+        "&periodStartYear=2027&periodStartMonth=3&periodEndYear=2027&periodEndMonth=5",
+        headers=auth_header("VIEWER"),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert body["result"]["totalCriadas"] == 2
+    assert [month["label"] for month in body["result"]["months"]] == ["Mar/2027", "Abr/2027"]
+    assert [unit["name"] for unit in body["result"]["units"]] == ["DOURADOS"]
+
+
 async def test_meta_query_param_changes_dentro_meta(client, auth_header) -> None:
     await _import_records(
         client, auth_header,

@@ -90,6 +90,32 @@ async def test_import_then_get_idp_selects_latest_rso(client, auth_header) -> No
     assert docs_by_rso[32]["active"] is False  # continua no histórico, não venceu
 
 
+async def test_get_idp_filters_canonical_unit(client, auth_header) -> None:
+    await _import_records(
+        client,
+        auth_header,
+        [
+            _idp_row(unit="MTU", rso_numero=34, month=6, fase_prev=50, fase_real=40),
+            _idp_row(unit="Nova Mutum", rso_numero=35, month=7, fase_prev=50, fase_real=45),
+            _idp_row(unit="RIO VERDE", rso_numero=10, month=7, fase_prev=50, fase_real=25),
+        ],
+    )
+
+    response = await client.get(
+        "/api/v1/idp?unidade=NOVA%20MUTUM"
+        "&periodStartYear=2026&periodStartMonth=6&periodEndYear=2026&periodEndMonth=11",
+        headers=auth_header("VIEWER"),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert body["result"]["activeDocuments"] == 1
+    assert body["result"]["unitRows"][0]["unit"] == "NOVA MUTUM"
+    available = [month["label"] for month in body["result"]["monthly"] if month["activeDocuments"]]
+    assert available == ["Junho/2026", "Julho/2026"]
+
+
 async def test_unit_rows_and_discipline_rows_expose_area_breakdown(client, auth_header) -> None:
     """Cobertura de contrato do "Detalhamento por unidade" e da expansão de
     "Aderência por disciplina" do painel administrativo do IDP (Nuxt)."""

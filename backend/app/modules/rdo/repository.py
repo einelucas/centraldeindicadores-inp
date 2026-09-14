@@ -141,16 +141,17 @@ async def load_calculation_rows(session: AsyncSession, filters: list[Any]) -> li
 
 
 async def load_detail_rows(
-    session: AsyncSession, filters: list[Any], limit: int = 1000
+    session: AsyncSession, filters: list[Any], limit: int | None = 1000
 ) -> list[RdoRecord]:
     stmt = (
         select(RdoRecord)
         .options(load_only(*_DETAIL_COLUMNS))
         .order_by(RdoRecord.dataReferencia.desc(), RdoRecord.empresaNome.asc())
-        .limit(limit)
     )
     if filters:
         stmt = stmt.where(*filters)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
