@@ -1,18 +1,23 @@
 <script setup lang="ts">
 import { Building2, Download, TrendingUp, Wrench, Zap } from "lucide-vue-next";
 import type { PeriodRange, PublicationEnvelope } from "~/types/api";
-import { periodQueryString, useReadingContextCycle } from "~/composables/useReadingContextCycle";
+import {
+  periodQueryString,
+  useReadingContextCycle,
+} from "~/composables/useReadingContextCycle";
 import { usePanelPdfExport } from "~/composables/usePanelPdfExport";
 import { MONTHS, yearSemesterFromCycle } from "~/utils/period";
 import { formatDate } from "~/utils/format";
-import { formatUnitLabel } from "~/logic/lib/units";
+import { formatUnitLabel, normalizeUnitCode } from "~/logic/lib/units";
 import { INDICATOR_DATA_CHANGED_EVENT } from "~/utils/browser-events";
 
 const api = useApi();
 
 const publication = ref<PublicationEnvelope["publication"]>(null);
+const adminResult = ref<Record<string, unknown> | null>(null);
 const loading = ref(true);
 const error = ref("");
+const selectedUnit = ref("all");
 
 const { cycle, setPeriod } = useReadingContextCycle();
 
@@ -25,46 +30,106 @@ const period = computed<PeriodRange>({
 });
 
 const panelRef = ref<HTMLElement | null>(null);
-const { exporting, error: exportError, exportPdf } = usePanelPdfExport(panelRef);
+const {
+  exporting,
+  error: exportError,
+  exportPdf,
+} = usePanelPdfExport(panelRef);
 
-const payload = computed<Record<string, unknown>>(() => publication.value?.payload ?? {});
+const payload = computed<Record<string, unknown>>(
+  () => publication.value?.payload ?? {},
+);
 
 const numberValue = (value: unknown, fallback = 0) =>
   typeof value === "number" ? value : Number(value ?? fallback);
 const numberOrNull = (value: unknown): number | null =>
-  typeof value === "number" ? value : value === null || value === undefined ? null : Number(value);
+  typeof value === "number"
+    ? value
+    : value === null || value === undefined
+      ? null
+      : Number(value);
 
-const result = computed(() => Math.round(numberValue(payload.value.resultado)));
-const meta = computed(() => numberValue(payload.value.meta ?? publication.value?.target));
-const resultOk = computed(() => result.value >= meta.value);
+const result = computed(() =>
+  Math.round(
+    numberValue(adminResult.value?.aderenciaGeral ?? payload.value.resultado),
+  ),
+);
+const meta = computed(() =>
+  numberValue(payload.value.meta ?? publication.value?.target),
+);
+const displayedResult = computed(() =>
+  selectedUnit.value === "all"
+    ? result.value
+    : (units.value[0]?.value ?? result.value),
+);
+const resultOk = computed(() => displayedResult.value >= meta.value);
 const civil = computed(() => numberOrNull(payload.value.civil));
 const mecanica = computed(() => numberOrNull(payload.value.mecanica));
 const eletrica = computed(() => numberOrNull(payload.value.eletrica));
 const selectedYear = computed(() =>
-  numberValue(payload.value.selectedYear, publication.value ? new Date(publication.value.publishedAt).getFullYear() : 0),
+  numberValue(
+    payload.value.selectedYear,
+    publication.value
+      ? new Date(publication.value.publishedAt).getFullYear()
+      : 0,
+  ),
 );
-const selectedMonth = computed(() => numberValue(payload.value.selectedMonth ?? payload.value.monthEnd, 12));
-const documentosAtivos = computed(() => numberValue(payload.value.documentosAtivos));
+const selectedMonth = computed(() =>
+  numberValue(payload.value.selectedMonth ?? payload.value.monthEnd, 12),
+);
+const documentosAtivos = computed(() =>
+  numberValue(payload.value.documentosAtivos),
+);
 
 const monthly = computed(() => {
-  const rows = Array.isArray(payload.value.mensal) ? (payload.value.mensal as Array<Record<string, unknown>>) : [];
-  return rows.map((row) => ({ label: String(row.label ?? ""), value: numberOrNull(row.v) }));
+  const rows =
+    selectedUnit.value !== "all" && Array.isArray(adminResult.value?.monthly)
+      ? (adminResult.value.monthly as Array<Record<string, unknown>>)
+      : Array.isArray(payload.value.mensal)
+        ? (payload.value.mensal as Array<Record<string, unknown>>)
+        : [];
+  return rows.map((row) => ({
+    label: String(row.label ?? ""),
+    value: numberOrNull(row.v ?? Number(row.aderencia ?? 0) * 100),
+  }));
 });
 
 const disciplineChartData = computed(() => {
-  const rows = Array.isArray(payload.value.disciplinas) ? (payload.value.disciplinas as Array<Record<string, unknown>>) : [];
+  const rows = Array.isArray(payload.value.disciplinas)
+    ? (payload.value.disciplinas as Array<Record<string, unknown>>)
+    : [];
   return rows
     .filter((row) => row.v !== null && row.v !== undefined)
-    .map((row) => ({ label: String(row.n ?? "").replace(/^\d+\s*-\s*/, ""), value: numberValue(row.v) }));
+    .map((row) => ({
+      label: String(row.n ?? "").replace(/^\d+\s*-\s*/, ""),
+      value: numberValue(row.v),
+    }));
 });
 
 const units = computed(() => {
-  const rows = Array.isArray(payload.value.unidades) ? (payload.value.unidades as Array<Record<string, unknown>>) : [];
-  return rows.map((row) => ({
-    label: formatUnitLabel(String(row.n ?? "")),
-    sublabel: row.rsoNumero ? `RSO ${row.rsoNumero}` : undefined,
-    value: numberValue(row.v),
-  }));
+  const rows =
+    selectedUnit.value !== "all" && Array.isArray(adminResult.value?.unitRows)
+      ? (adminResult.value.unitRows as Array<Record<string, unknown>>)
+      : Array.isArray(payload.value.unidades)
+        ? (payload.value.unidades as Array<Record<string, unknown>>)
+        : [];
+  return rows
+    .filter(
+      (row) =>
+        selectedUnit.value === "all" ||
+        normalizeUnitCode(row.n ?? row.unit) === selectedUnit.value,
+    )
+    .map((row) => ({
+      label: formatUnitLabel(String(row.n ?? row.unit ?? "")),
+      sublabel: row.rsoNumero ? `RSO ${row.rsoNumero}` : undefined,
+      value: numberValue(row.v ?? Number(row.aderencia ?? 0) * 100),
+    }));
+});
+const availableUnits = computed(() => {
+  const rows = Array.isArray(payload.value.unidades)
+    ? (payload.value.unidades as Array<Record<string, unknown>>)
+    : [];
+  return rows.map((row) => String(row.n ?? ""));
 });
 
 function disciplineValue(value: number | null): string {
@@ -84,9 +149,30 @@ async function load() {
     );
     publication.value = body.publication;
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : "Falha ao carregar o painel publicado.";
+    error.value =
+      cause instanceof Error
+        ? cause.message
+        : "Falha ao carregar o painel publicado.";
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadUnitData() {
+  if (selectedUnit.value === "all") {
+    adminResult.value = null;
+    return;
+  }
+  try {
+    const body = await api.get<{ result: Record<string, unknown> }>("/idp", {
+      ...Object.fromEntries(
+        new URLSearchParams(periodQueryString(cycle.value)),
+      ),
+      unidade: formatUnitLabel(selectedUnit.value),
+    });
+    adminResult.value = body.result;
+  } catch {
+    adminResult.value = null;
   }
 }
 
@@ -94,7 +180,17 @@ async function handleExportPdf() {
   await exportPdf(`IDP_painel_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
-watch(cycle, load, { deep: true });
+watch(
+  cycle,
+  () => {
+    void load();
+    void loadUnitData();
+  },
+  { deep: true },
+);
+watch(selectedUnit, () => {
+  void loadUnitData();
+});
 
 onMounted(() => {
   void load();
@@ -113,11 +209,13 @@ onBeforeUnmount(() => {
         <div>
           <h2>Aderência do Cronograma (IDP)</h2>
           <p v-if="publication">
-            Publicação v{{ publication.version }} · {{ formatDate(publication.publishedAt, true) }}
+            Publicação v{{ publication.version }} ·
+            {{ formatDate(publication.publishedAt, true) }}
           </p>
         </div>
         <div class="toolbar">
           <PeriodSelector v-model="period" />
+          <UnitSelector v-model="selectedUnit" :units="availableUnits" />
           <button
             type="button"
             class="btn btn-icon"
@@ -130,9 +228,13 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <p v-if="exportError" class="ps px-5" style="color: #cc5121">{{ exportError }}</p>
+      <p v-if="exportError" class="ps px-5" style="color: #cc5121">
+        {{ exportError }}
+      </p>
 
-      <div v-if="loading && !publication" class="loading-state"><div class="spinner" /></div>
+      <div v-if="loading && !publication" class="loading-state">
+        <div class="spinner" />
+      </div>
 
       <div v-else-if="error && !publication" class="error-state">
         <div>
@@ -144,7 +246,10 @@ onBeforeUnmount(() => {
       <div v-else-if="!publication" class="empty-state">
         <div>
           <h3>Nenhuma publicação para este período</h3>
-          <p>Escolha outro ano ou semestre acima, ou publique os dados na área de Administração.</p>
+          <p>
+            Escolha outro ano ou semestre acima, ou publique os dados na área de
+            Administração.
+          </p>
         </div>
       </div>
 
@@ -155,9 +260,13 @@ onBeforeUnmount(() => {
               <div class="ml">Execução geral</div>
               <div class="mc-icon"><TrendingUp :size="16" /></div>
             </div>
-            <div :class="['mv', resultOk ? 'G' : 'R']">{{ result }}%</div>
+            <div :class="['mv', resultOk ? 'G' : 'R']">
+              {{ displayedResult }}%
+            </div>
             <div class="mm">Meta &gt;{{ meta }}%</div>
-            <div :class="['ms', resultOk ? 'ok' : 'no']">{{ resultOk ? "✓ Atingida" : "✗ Abaixo" }}</div>
+            <div :class="['ms', resultOk ? 'ok' : 'no']">
+              {{ resultOk ? "✓ Atingida" : "✗ Abaixo" }}
+            </div>
           </div>
 
           <div :class="['mc', civil !== null && civil >= meta ? 'G' : 'A']">
@@ -165,25 +274,39 @@ onBeforeUnmount(() => {
               <div class="ml">Civil</div>
               <div class="mc-icon"><Building2 :size="16" /></div>
             </div>
-            <div :class="['mv', civil !== null && civil >= meta ? 'G' : 'A']">{{ disciplineValue(civil) }}</div>
+            <div :class="['mv', civil !== null && civil >= meta ? 'G' : 'A']">
+              {{ disciplineValue(civil) }}
+            </div>
             <div class="mm">Por disciplina</div>
           </div>
 
-          <div :class="['mc', mecanica !== null && mecanica >= meta ? 'G' : 'A']">
+          <div
+            :class="['mc', mecanica !== null && mecanica >= meta ? 'G' : 'A']"
+          >
             <div class="mc-head">
               <div class="ml">Mecânica</div>
               <div class="mc-icon"><Wrench :size="16" /></div>
             </div>
-            <div :class="['mv', mecanica !== null && mecanica >= meta ? 'G' : 'A']">{{ disciplineValue(mecanica) }}</div>
+            <div
+              :class="['mv', mecanica !== null && mecanica >= meta ? 'G' : 'A']"
+            >
+              {{ disciplineValue(mecanica) }}
+            </div>
             <div class="mm">Por disciplina</div>
           </div>
 
-          <div :class="['mc', eletrica !== null && eletrica >= meta ? 'G' : 'A']">
+          <div
+            :class="['mc', eletrica !== null && eletrica >= meta ? 'G' : 'A']"
+          >
             <div class="mc-head">
               <div class="ml">Elétrica</div>
               <div class="mc-icon"><Zap :size="16" /></div>
             </div>
-            <div :class="['mv', eletrica !== null && eletrica >= meta ? 'G' : 'A']">{{ disciplineValue(eletrica) }}</div>
+            <div
+              :class="['mv', eletrica !== null && eletrica >= meta ? 'G' : 'A']"
+            >
+              {{ disciplineValue(eletrica) }}
+            </div>
             <div class="mm">Por disciplina</div>
           </div>
         </div>
@@ -195,34 +318,63 @@ onBeforeUnmount(() => {
             <span class="rdo-panel-target">META: &gt;{{ meta }}%</span>
             <span>
               Resultado:
-              <strong :style="{ color: resultOk ? '#609346' : '#cc5121', fontSize: '14px' }">{{ result }}%</strong>
+              <strong
+                :style="{
+                  color: resultOk ? '#609346' : '#cc5121',
+                  fontSize: '14px',
+                }"
+                >{{ displayedResult }}%</strong
+              >
             </span>
             <span style="color: #bbb">
-              — competência {{ competenceLabel(selectedYear, selectedMonth) }} · {{ documentosAtivos }} RSO(s) ativo(s) ·
-              publicado em {{ formatDate(publication.publishedAt, true) }} por
-              {{ publication.publishedBy?.name ?? "sistema" }} · versão {{ publication.version }}
+              — competência {{ competenceLabel(selectedYear, selectedMonth) }} ·
+              {{ documentosAtivos }} RSO(s) ativo(s) · publicado em
+              {{ formatDate(publication.publishedAt, true) }} por
+              {{ publication.publishedBy?.name ?? "sistema" }} · versão
+              {{ publication.version }}
             </span>
           </p>
 
           <div class="g2 indicator-subgrid">
             <div class="indicator-subcard">
               <div class="ct">Aderência mensal (%)</div>
-              <div class="cs">Comparativo do percentual executado com a meta em cada mês.</div>
-              <LineChart v-if="monthly.length" :points="monthly" :target="meta" suffix="%" color="#304f7e" series-label="Aderência" />
+              <div class="cs">
+                Comparativo do percentual executado com a meta em cada mês.
+              </div>
+              <LineChart
+                v-if="monthly.length"
+                :points="monthly"
+                :target="meta"
+                suffix="%"
+                color="#304f7e"
+                series-label="Aderência"
+              />
               <p v-else class="ps">Sem dados mensais publicados.</p>
             </div>
 
             <div v-if="disciplineChartData.length" class="indicator-subcard">
               <div class="ct">Aderência por disciplina (%)</div>
-              <div class="cs">Comparativo do percentual executado por disciplina.</div>
-              <BarChart :points="disciplineChartData" :target="meta" suffix="%" color="#304f7e" />
+              <div class="cs">
+                Comparativo do percentual executado por disciplina.
+              </div>
+              <BarChart
+                :points="disciplineChartData"
+                :target="meta"
+                suffix="%"
+                color="#304f7e"
+              />
             </div>
           </div>
 
           <div class="indicator-subcard">
             <div class="ct">Execução por unidade — RSO utilizado</div>
             <div class="cs">Leitura visual de desempenho por unidade.</div>
-            <UnitProgressBars :items="units" :target="meta" suffix="%" empty-message="Sem unidades publicadas." />
+            <UnitProgressBars
+              :items="units"
+              :target="meta"
+              suffix="%"
+              empty-message="Sem unidades publicadas."
+            />
           </div>
         </div>
       </div>

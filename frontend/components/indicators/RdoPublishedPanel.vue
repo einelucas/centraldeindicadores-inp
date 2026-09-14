@@ -1,23 +1,34 @@
 <script setup lang="ts">
-import { CheckCircle2, Download, FileText, Hourglass, PencilLine } from "lucide-vue-next";
+import {
+  CheckCircle2,
+  Download,
+  FileText,
+  Hourglass,
+  PencilLine,
+} from "lucide-vue-next";
 
 import type { PeriodRange, PublicationEnvelope } from "~/types/api";
 
-import { periodQueryString, useReadingContextCycle } from "~/composables/useReadingContextCycle";
+import {
+  periodQueryString,
+  useReadingContextCycle,
+} from "~/composables/useReadingContextCycle";
 
 import { usePanelPdfExport } from "~/composables/usePanelPdfExport";
 
 import { yearSemesterFromCycle } from "~/utils/period";
 
 import { formatDate, formatNumber } from "~/utils/format";
-import { formatUnitLabel } from "~/logic/lib/units";
+import { formatUnitLabel, normalizeUnitCode } from "~/logic/lib/units";
 import { INDICATOR_DATA_CHANGED_EVENT } from "~/utils/browser-events";
 
 const api = useApi();
 
 const publication = ref<PublicationEnvelope["publication"]>(null);
+const adminResult = ref<Record<string, unknown> | null>(null);
 const loading = ref(true);
 const error = ref("");
+const selectedUnit = ref("all");
 
 const { cycle, setPeriod } = useReadingContextCycle();
 
@@ -31,16 +42,34 @@ const period = computed<PeriodRange>({
 
 const panelRef = ref<HTMLElement | null>(null);
 
-const { exporting, error: exportError, exportPdf } = usePanelPdfExport(panelRef);
+const {
+  exporting,
+  error: exportError,
+  exportPdf,
+} = usePanelPdfExport(panelRef);
 
-const payload = computed<Record<string, unknown>>(() => publication.value?.payload ?? {});
+const payload = computed<Record<string, unknown>>(
+  () => publication.value?.payload ?? {},
+);
 
 const numberValue = (value: unknown, fallback = 0) =>
   typeof value === "number" ? value : Number(value ?? fallback);
 
-const result = computed(() => Math.round(numberValue(payload.value.resultado)));
+const result = computed(() =>
+  Math.round(
+    numberValue(
+      adminResult.value?.totalAprovados && adminResult.value?.totalEmitidos
+        ? (Number(adminResult.value.totalAprovados) /
+            Number(adminResult.value.totalEmitidos)) *
+            100
+        : payload.value.resultado,
+    ),
+  ),
+);
 
-const meta = computed(() => numberValue(payload.value.meta ?? publication.value?.target));
+const meta = computed(() =>
+  numberValue(payload.value.meta ?? publication.value?.target),
+);
 
 const emitted = computed(() => numberValue(payload.value.emitidos));
 
@@ -50,36 +79,63 @@ const reviewing = computed(() => numberValue(payload.value.emRevisaoPct));
 
 const filling = computed(() => numberValue(payload.value.preenchendoPct));
 
-const resultOk = computed(() => result.value >= meta.value);
+const resultOk = computed(() => displayedResult.value >= meta.value);
 
-const reviewingCount = computed(() => Math.round((reviewing.value / 100) * emitted.value));
+const reviewingCount = computed(() =>
+  Math.round((reviewing.value / 100) * emitted.value),
+);
 
-const fillingCount = computed(() => Math.round((filling.value / 100) * emitted.value));
+const fillingCount = computed(() =>
+  Math.round((filling.value / 100) * emitted.value),
+);
 
 const monthly = computed(() => {
-  const rows = Array.isArray(payload.value.mensal)
-    ? (payload.value.mensal as Array<Record<string, unknown>>)
-    : [];
+  const rows =
+    selectedUnit.value !== "all" && Array.isArray(adminResult.value?.months)
+      ? (adminResult.value.months as Array<Record<string, unknown>>)
+      : Array.isArray(payload.value.mensal)
+        ? (payload.value.mensal as Array<Record<string, unknown>>)
+        : [];
 
   return rows
+    .filter(
+      (row) =>
+        selectedUnit.value === "all" ||
+        normalizeUnitCode(row.n ?? row.name) === selectedUnit.value,
+    )
     .map((row) => ({
       label: String(row.label ?? ""),
-      value: numberValue(row.v ?? row.resultado, NaN),
+      value: numberValue(row.v ?? Number(row.aderencia ?? 0) * 100, Number.NaN),
     }))
     .filter((row) => Number.isFinite(row.value));
 });
-
-const units = computed(() => {
+const availableUnits = computed(() => {
   const rows = Array.isArray(payload.value.unidades)
     ? (payload.value.unidades as Array<Record<string, unknown>>)
     : [];
+  return rows.map((row) => String(row.n ?? row.name ?? ""));
+});
+const selectedUnitResult = computed(() =>
+  selectedUnit.value === "all" ? null : (units.value[0]?.value ?? null),
+);
+const displayedResult = computed(
+  () => selectedUnitResult.value ?? result.value,
+);
+
+const units = computed(() => {
+  const rows =
+    selectedUnit.value !== "all" && Array.isArray(adminResult.value?.units)
+      ? (adminResult.value.units as Array<Record<string, unknown>>)
+      : Array.isArray(payload.value.unidades)
+        ? (payload.value.unidades as Array<Record<string, unknown>>)
+        : [];
 
   return rows
     .map((row) => ({
       // `formatUnitLabel` é idempotente em nomes já formatados — cobre
       // também publicações antigas cujo payload salvo ainda guarda a sigla.
       label: formatUnitLabel(String(row.n ?? row.name ?? "")),
-      value: numberValue(row.v ?? row.aderencia, NaN),
+      value: numberValue(row.v ?? Number(row.aderencia ?? 0) * 100, Number.NaN),
     }))
     .filter((row) => Number.isFinite(row.value));
 });
@@ -87,7 +143,7 @@ const units = computed(() => {
 const statusItems = computed(() => [
   {
     label: "Aprovado",
-    value: result.value,
+    value: displayedResult.value,
     color: "#609346",
   },
   {
@@ -114,9 +170,30 @@ async function load() {
 
     publication.value = body.publication;
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : "Falha ao carregar o painel publicado.";
+    error.value =
+      cause instanceof Error
+        ? cause.message
+        : "Falha ao carregar o painel publicado.";
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadUnitData() {
+  if (selectedUnit.value === "all") {
+    adminResult.value = null;
+    return;
+  }
+  try {
+    const body = await api.get<{ result: Record<string, unknown> }>("/rdo", {
+      ...Object.fromEntries(
+        new URLSearchParams(periodQueryString(cycle.value)),
+      ),
+      unidade: formatUnitLabel(selectedUnit.value),
+    });
+    adminResult.value = body.result;
+  } catch {
+    adminResult.value = null;
   }
 }
 
@@ -124,8 +201,16 @@ async function handleExportPdf() {
   await exportPdf(`RDO_painel_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
-watch(cycle, load, {
-  deep: true,
+watch(
+  cycle,
+  () => {
+    void load();
+    void loadUnitData();
+  },
+  { deep: true },
+);
+watch(selectedUnit, () => {
+  void loadUnitData();
 });
 
 onMounted(() => {
@@ -146,11 +231,13 @@ onBeforeUnmount(() => {
         <div>
           <h2>Aprovação de RDO</h2>
           <p v-if="publication">
-            Publicação v{{ publication.version }} · {{ formatDate(publication.publishedAt, true) }}
+            Publicação v{{ publication.version }} ·
+            {{ formatDate(publication.publishedAt, true) }}
           </p>
         </div>
         <div class="toolbar">
           <PeriodSelector v-model="period" />
+          <UnitSelector v-model="selectedUnit" :units="availableUnits" />
           <button
             type="button"
             class="btn btn-icon"
@@ -167,7 +254,9 @@ onBeforeUnmount(() => {
         {{ exportError }}
       </p>
 
-      <div v-if="loading && !publication" class="loading-state"><div class="spinner" /></div>
+      <div v-if="loading && !publication" class="loading-state">
+        <div class="spinner" />
+      </div>
 
       <div v-else-if="error && !publication" class="error-state">
         <div>
@@ -179,7 +268,10 @@ onBeforeUnmount(() => {
       <div v-else-if="!publication" class="empty-state">
         <div>
           <h3>Nenhuma publicação para este período</h3>
-          <p>Escolha outro ano ou semestre acima, ou publique os dados na área de Administração.</p>
+          <p>
+            Escolha outro ano ou semestre acima, ou publique os dados na área de
+            Administração.
+          </p>
         </div>
       </div>
 
@@ -195,7 +287,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <div class="mv G">{{ result }}%</div>
+            <div class="mv G">{{ displayedResult }}%</div>
 
             <div class="mm">Meta &gt;{{ meta }}%</div>
 
@@ -275,7 +367,7 @@ onBeforeUnmount(() => {
                   fontSize: '14px',
                 }"
               >
-                {{ result }}%
+                {{ displayedResult }}%
               </strong>
             </span>
 
@@ -293,7 +385,9 @@ onBeforeUnmount(() => {
             <div class="indicator-subcard">
               <div class="ct">Distribuição de status</div>
 
-              <div class="cs">Proporção entre relatórios aprovados, em revisão e preenchendo.</div>
+              <div class="cs">
+                Proporção entre relatórios aprovados, em revisão e preenchendo.
+              </div>
 
               <!--
                 O DonutChart controla internamente
@@ -306,7 +400,9 @@ onBeforeUnmount(() => {
             <div class="indicator-subcard">
               <div class="ct">Aprovação mensal</div>
 
-              <div class="cs">Aderência mensal comparada com a meta do indicador.</div>
+              <div class="cs">
+                Aderência mensal comparada com a meta do indicador.
+              </div>
 
               <LineChart
                 :points="monthly"

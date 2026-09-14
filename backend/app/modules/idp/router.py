@@ -79,6 +79,7 @@ from app.shared.period import (
     period_range_predicate,
 )
 from app.shared.period_params import period_range_query
+from app.shared.units import normalize_unit_code
 from app.shared.publication_cycle import resolve_publication_cycle, select_publication_for_period
 from app.shared.units import format_unit_label, normalize_unit_code
 
@@ -224,6 +225,7 @@ async def _load_all_rows(session: AsyncSession) -> list[IdpRsoRecord]:
 
 @router.get("/idp", response_model=IdpGetOut)
 async def get_idp(
+    unidade: str | None = Query(default=None),
     threshold: str | None = Query(default=None),
     period: Annotated[PeriodRange | None, Depends(period_range_query)] = None,
     session: AsyncSession = Depends(get_session),
@@ -232,8 +234,11 @@ async def get_idp(
     threshold_fraction = _parse_threshold(threshold)
 
     rows = await _load_all_rows(session)
-    total = len(rows)
     pairs, invalid = reconstruct_records(rows)
+    if unidade:
+        selected_unit = normalize_unit_code(unidade)
+        pairs = [(row, record) for row, record in pairs if normalize_unit_code(record.unit) == selected_unit]
+    total = len(pairs)
     records = [record for _row, record in pairs]
 
     configuration = await load_idp_configuration(session)

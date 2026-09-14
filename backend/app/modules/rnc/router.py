@@ -78,6 +78,7 @@ from app.shared.period import (
     period_range_predicate,
 )
 from app.shared.period_params import period_range_query
+from app.shared.units import normalize_unit_code
 from app.shared.publication_cycle import resolve_publication_cycle, select_publication_for_period
 
 router = APIRouter()
@@ -164,6 +165,7 @@ def _result_out(result: RncResult) -> RncResultOut:
 
 @router.get("/rnc", response_model=RncGetOut)
 async def get_rnc(
+    unidade: str | None = Query(default=None),
     meta: str | None = Query(default=None),
     period: Annotated[PeriodRange | None, Depends(period_range_query)] = None,
     session: AsyncSession = Depends(get_session),
@@ -172,6 +174,9 @@ async def get_rnc(
     meta_dias = _parse_meta(meta)
 
     rows = await load_all_records(session)
+    if unidade:
+        selected_unit = normalize_unit_code(unidade)
+        rows = [row for row in rows if normalize_unit_code(row.unidade) == selected_unit]
     total = len(rows)
     last_import = await load_last_import(session)
     configuration = await load_rnc_configuration(session)
