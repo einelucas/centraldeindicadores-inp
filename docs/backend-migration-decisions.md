@@ -1,135 +1,118 @@
-# Decisões da migração do backend (Next → FastAPI)
+# Decisões técnicas e regras de comportamento
 
-Este documento existe porque várias partes do código em `backend/` citam
-`docs/backend-migration-decisions.md` como a fonte de uma decisão, mas o
-arquivo nunca tinha sido criado — as citações apontavam para lugar nenhum.
-Este documento consolida, com evidência de código, cada decisão realmente
-tomada. Onde uma decisão muda o comportamento observável em relação ao
-TypeScript original (Next) e não há registro de validação por alguém do
-time de negócio, isso é dito explicitamente — citar este arquivo não deve
-ser lido como "decisão aprovada" quando o texto diz o contrário.
+Este documento registra decisões de implementação que afetam comportamento, testes, persistência ou cálculo da Central de Indicadores.
 
-## §1 — Isolamento do banco de dados de teste (incidente registrado)
+O objetivo é evitar que detalhes importantes sejam alterados sem compreender seus impactos. As regras abaixo descrevem o sistema atual e devem ser lidas em conjunto com o código e os testes da branch `main`.
 
-**O que aconteceu:** `backend/tests/conftest.py` sempre teve uma fixture
-`autouse` que executa `TRUNCATE TABLE ... RESTART IDENTITY CASCADE` em todas
-as tabelas da aplicação após cada teste. Até esta correção, essa fixture
-usava o mesmo `engine`/`DATABASE_URL` de `backend/.env` — o mesmo arquivo
-usado pelo servidor de desenvolvimento real. Como não existia um banco de
-teste fisicamente separado, rodar a suíte de testes (algo pedido como
-critério de conclusão em toda adequação/migração de módulo) apagava todos os
-dados reais inseridos manualmente no sistema. Isso já aconteceu mais de uma
-vez, incluindo durante a auditoria do módulo IDP.
+> O nome físico deste arquivo é mantido por compatibilidade com referências internas existentes no código. O conteúdo representa decisões técnicas atuais da aplicação.
 
-**Correção aplicada:**
+## 1. Banco dedicado para testes
 
-- `backend/tests/conftest.py` agora carrega `backend/.env.test` (com
-  `override=True`) **antes** de importar qualquer coisa de `app.*`, e recusa
-  explicitamente a rodar se esse arquivo não existir.
-- Foi criado um banco Postgres fisicamente separado (`neondb_test`, no mesmo
-  servidor Neon do banco real) só para a suíte de testes, com o schema
-  aplicado via `alembic upgrade head`.
-- `_clean_database` agora verifica `SELECT current_database()` e o
-  `APP_ENV` resolvido antes de truncar — se o banco conectado não terminar
-  em `_test` ou `APP_ENV != "test"`, a fixture levanta um erro em vez de
-  truncar. Isso é uma segunda trava, independente do `.env.test` estar
-  correto, para que uma reconfiguração futura não repita o incidente.
-- `backend/.env.test.example` documenta o requisito para quem for configurar
-  o ambiente pela primeira vez.
+A suíte de integração executa limpeza de tabelas entre testes. Por isso, deve usar um PostgreSQL dedicado exclusivamente a testes.
 
-**Regra permanente:** `backend/.env` (servidor de desenvolvimento, dados
-reais) e `backend/.env.test` (suíte de testes, banco descartável) nunca
-podem apontar para o mesmo banco de dados. Nenhuma migração/adequação de
-módulo deve alterar essa separação.
+Regras permanentes:
 
-## §2 — Por que não usar SQLite nos testes
+- `backend/.env` e `backend/.env.test` não devem apontar para o mesmo banco;
+- o banco de teste deve ser descartável;
+- a configuração de testes deve ser carregada antes de inicializar conexões da aplicação;
+- proteções de ambiente devem impedir `TRUNCATE` em banco que não tenha sido explicitamente configurado como teste.
 
-Os testes de integração exercitam comportamento específico do PostgreSQL
-(constraints, tipos JSON, `TRUNCATE ... CASCADE`, índices únicos parciais)
-que SQLite não reproduz fielmente. A suíte sempre exigiu um Postgres real
-(ver `backend/tests/conftest.py`); a alternativa (SQLite em memória) foi
-descartada para não mascarar divergências de comportamento entre o banco de
-teste e o de produção.
+Essa regra existe para proteger dados utilizados durante desenvolvimento e validação manual.
 
-## §3.3 — Escopo da fixture de event loop do pytest-asyncio
+## 2. PostgreSQL nos testes de integração
 
-`pyproject.toml`: `asyncio_default_fixture_loop_scope = "function"` (não
-`"session"`). Com escopo `"session"`, o event loop é compartilhado entre
-testes, e o `NullPool` assíncrono do `asyncpg` (necessário para que cada
-teste abra uma conexão nova presa ao loop correto — ver
-`app/core/database.py`) causava execução duplicada de testes e hangs
-intermitentes quando uma conexão de um teste anterior ficava presa a um loop
-já encerrado. Escopo `"function"` isola cada teste em seu próprio loop.
+Os testes de integração usam PostgreSQL real porque o sistema depende de comportamentos específicos do banco, incluindo:
 
-## §4.2.1 — IDP: `calculate_idp_adherence` com `previsto == 0`
+- constraints;
+- JSON;
+- índices únicos/parciais;
+- `TRUNCATE ... CASCADE`;
+- semântica de transações e conflitos.
 
-**Status: RESOLVIDO — revertido para paridade com o Next (2026-09-10).**
+SQLite não é substituto aceitável para essa camada de testes.
 
-- TS original (`src/features/idp/calculations/index.ts:51-54`): quando
-  `previsto` é `0` ou não finito, retorna `0`.
-- Uma sessão de adequação anterior havia mudado o Python para retornar
-  `None` nesse caso, citando este documento como se a decisão já estivesse
-  registrada e aprovada — o que não era verdade, pois o documento não
-  existia. Isso fazia `average_ignoring_none` **excluir** unidades com
-  baseline zerado da aderência geral, em vez de **incluí-las como zero**
-  (comportamento do `average()` do TS), alterando silenciosamente números
-  publicados em relação ao legado.
-- Consultado o responsável pelo projeto em 2026-09-10: decisão confirmada
-  de restaurar o comportamento original do Next. `calculate_idp_adherence`
-  (`backend/app/modules/idp/calculations.py:49-57`) agora retorna `0.0`
-  (não mais `None`) quando `previsto == 0` ou não finito — paridade total
-  restaurada. Teste correspondente:
-  `backend/tests/unit/test_idp_calculations.py::test_baseline_zero_retorna_zero`.
+## 3. Event loop do pytest-asyncio
 
-## §4.2.2 — IDP: seleção de competência sem período informado
+`asyncio_default_fixture_loop_scope = "function"`.
 
-`backend/app/modules/idp/calculations.py:262-266`: quando `GET /idp` é
-chamado sem filtro de período, usa a competência mais recente disponível em
-toda a base como "mês do histórico"; se não houver nenhum registro, usa o
-mês/ano atual do servidor. Esse ramo (ausência total de período) não tinha
-um teste unitário correspondente no TS original disponível no inventário —
-decisão pragmática para preencher uma lacuna de especificação, não uma
-divergência deliberada de comportamento.
+Cada teste recebe seu próprio event loop para evitar compartilhamento indevido de conexões `asyncpg` entre loops diferentes.
 
-## §4.2.3 — IDP: serialização de estruturas aninhadas no hash de conteúdo
+Alterar esse escopo exige validar novamente a interação entre pytest-asyncio, SQLAlchemy async e o pool configurado pelo backend.
 
-`backend/app/modules/idp/keys.py`: os campos `areas`/`discData`/
-`execucaoFases` do RSO são listas/objetos aninhados, não escalares. O
-inventário do TS original não deixou claro como `makeContentHash` (que
-documentadamente faz `String(value)` sobre cada campo) serializava esses
-valores sem perder sensibilidade do hash a mudanças de conteúdo. A
-implementação Python serializa cada estrutura via
-`json.dumps(..., sort_keys=True)` antes de entrar no hash — garante
-determinismo e sensibilidade real a mudanças, mesmo sem garantia de que o
-valor do hash seja bit-a-bit idêntico ao do TS original (o que não é um
-requisito funcional: o hash só precisa ser estável e sensível a mudanças
-para o motor de importação incremental funcionar).
+## 4. IDP — baseline igual a zero
 
-## §4.2.4 — IDP: linha corrompida na reidratação não derruba a rota
+`calculate_idp_adherence` retorna `0.0` quando o valor previsto é zero ou não finito.
 
-`backend/app/modules/idp/repository.py`: ao reidratar registros persistidos
-do RSO para `IdpNormalizedRecord`, uma linha corrompida (dado inconsistente
-no banco) é ignorada e contada separadamente, em vez de propagar uma
-exceção não tratada que derrubaria a rota inteira com 500. Correção
-mandatória em relação ao comportamento observado no `HEAD` da migração
-(que não tratava esse caso).
+Isso mantém unidades/disciplinas sem baseline válido dentro da consolidação como aderência zero, em vez de removê-las silenciosamente da média.
 
-## §4.2.6 — IDP: `idp.excludedDisciplines` aceita string ou array
+Teste associado: `backend/tests/unit/test_idp_calculations.py`.
 
-`backend/app/modules/idp/router.py:466-471`: o setting
-`idp.excludedDisciplines` é aceito tanto como string multi-linha (textarea
-do admin, um nome por linha ou separado por vírgula) quanto como array já
-pronto. O inventário do TS original só confirmou, via teste unitário, o
-comportamento de split de string — o suporte a array direto é uma extensão
-pragmática para tolerar ambos os formatos sem quebrar compatibilidade.
+## 5. IDP — período ausente
 
-## RNC — `dataSolucao` não parseável não rejeita o registro
+Quando a leitura do IDP ocorre sem período explícito, o backend resolve a competência mais recente disponível. Se não houver registros, utiliza a competência corrente do servidor como fallback de apresentação.
 
-`backend/app/modules/rnc/service.py`: quando `dataCriacao` não é parseável,
-o registro é rejeitado (mesmo comportamento do TS:
-`rncRecordSchema.safeParse` falha, ou `new Date(...)` é `NaN`). Já
-`dataSolucao`, quando presente mas não parseável, não rejeita a linha —
-fica `None` (equivale a "ainda não solucionada"). O TS original não tinha
-um caminho de rejeição explícito para esse campo especificamente, então
-esse comportamento é uma extrapolação razoável, não uma divergência
-deliberada.
+Chamadas dos painéis devem preferir período operacional explícito sempre que o contexto já o conhece.
+
+## 6. IDP — hashing de estruturas aninhadas
+
+Campos estruturados do RSO, como listas e objetos, são serializados de forma determinística antes de entrar no content hash.
+
+A serialização deve:
+
+- ser estável;
+- preservar mudanças de conteúdo;
+- evitar que duas estruturas diferentes produzam a mesma representação trivial.
+
+A implementação usa JSON determinístico para esses campos.
+
+## 7. IDP — registros persistidos inválidos
+
+Ao reconstruir registros de RSO a partir do banco, uma linha inconsistente deve ser tratada de forma controlada e contabilizada como inválida, evitando que um único registro corrompido derrube toda a rota.
+
+O comportamento precisa continuar observável por logs/contagem para permitir correção da base.
+
+## 8. IDP — disciplinas excluídas
+
+A configuração `idp.excludedDisciplines` aceita os formatos suportados pela camada de configuração atual, incluindo representação textual e lista normalizada.
+
+A normalização deve produzir uma coleção consistente antes do cálculo.
+
+## 9. RNC — data de solução inválida
+
+`dataCriacao` inválida impede que o registro seja usado corretamente e deve ser tratada pela validação do módulo.
+
+Já uma `dataSolucao` ausente ou não utilizável pode representar uma não conformidade ainda sem solução e, conforme a implementação atual, é tratada como valor nulo quando o restante do registro é válido.
+
+## 10. Publicações e dados administrativos
+
+Dados administrativos e publicações são conceitos separados.
+
+- importação/edição altera a base administrativa;
+- cálculo administrativo reflete essa base;
+- publicação cria o snapshot de leitura;
+- painéis publicados não devem trocar automaticamente para dados administrativos não publicados.
+
+## 11. Scorecard
+
+A fonte de verdade dos indicadores oficiais está em `backend/app/modules/scorecard/types.py`.
+
+Regras atuais:
+
+- RDO: 35%;
+- IDP/Cronograma: 40%;
+- RNC: 15%;
+- Horas Extras Pagas: 10% reservado;
+- 5S: fora do Scorecard.
+
+O peso reservado não deve ser redistribuído entre os demais indicadores.
+
+## 12. Atualização deste documento
+
+Uma decisão deve ser registrada aqui quando:
+
+- altera comportamento observável de cálculo;
+- evita risco relevante de perda de dados;
+- muda uma convenção transversal de persistência/teste;
+- resolve uma ambiguidade de domínio que não é óbvia pelo tipo ou pelo endpoint.
+
+Não usar este arquivo como histórico de tecnologias anteriores; documente sempre a regra vigente da aplicação.

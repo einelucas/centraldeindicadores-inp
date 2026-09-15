@@ -2,149 +2,185 @@
 
 ## Visão geral
 
-A Central de Indicadores é composta por dois serviços independentes que
-conversam por HTTP/JSON, mais um banco PostgreSQL:
+A Central de Indicadores é uma aplicação web em três camadas:
 
 ```text
-frontend/ (Nuxt 4 + Vue 3)
+frontend/ — Nuxt 4 + Vue 3 + TypeScript
         │
-        │  HTTP / JSON  (NUXT_PUBLIC_API_BASE_URL)
+        │ HTTP/JSON
         ▼
-backend/ (FastAPI + Pydantic)
+backend/ — FastAPI + Pydantic
         │
-        │  SQLAlchemy assíncrono (asyncpg)
+        │ SQLAlchemy assíncrono
         ▼
 PostgreSQL
 ```
 
-- **`frontend/`** — aplicação Nuxt 4 (Vue 3 + TypeScript). Não acessa o
-  banco nem contém regra de negócio: todo cálculo, validação e persistência
-  vêm da API.
-- **`backend/`** — API FastAPI. Concentra autenticação, permissões,
-  validação, cálculo dos indicadores e persistência.
-- **PostgreSQL** — único banco de dados, acessado apenas pelo backend.
+- **Frontend**: interface, navegação, filtros, upload, visualização e exportação.
+- **Backend**: autenticação, autorização, validação, regras de negócio, cálculos, publicações e persistência.
+- **PostgreSQL**: fonte persistente de dados administrativos, resultados, publicações, configurações e auditoria.
 
-## Camadas do backend
+O frontend não acessa o banco diretamente. Toda regra de negócio relevante deve ser validada no backend.
 
-Cada módulo de indicador (`backend/app/modules/<modulo>/`) segue o mesmo
-padrão de arquivos:
+## Backend
+
+O backend está em `backend/app/` e expõe a API sob `/api/v1`.
 
 ```text
-app/modules/<modulo>/
-├── types.py          # constantes e tipos do domínio (metas, colunas aceitas)
-├── schemas.py         # contratos Pydantic de entrada/saída
-├── keys.py            # business key + content hash do módulo
-├── calculations.py    # cálculo do indicador (função pura, testável)
-├── repository.py       # acesso a dados (SQLAlchemy)
-├── service.py           # orquestração: valida, persiste, recalcula, publica
-├── publications.py      # payload de publicação (o que vira snapshot)
-└── router.py            # endpoints FastAPI — nunca contém regra de negócio
+backend/app/
+├── main.py
+├── api/v1/
+├── core/
+├── models/
+├── modules/
+└── shared/
 ```
 
-Esse isolamento permite alterar um módulo sem afetar os demais, e mantém o
-cálculo (`calculations.py`) testável isoladamente, sem banco nem HTTP.
+### `core/`
 
-## Código compartilhado do backend
+Infraestrutura transversal:
 
-`app/shared/` reúne utilitários usados por todos os módulos, sem
-dependência de nenhum módulo específico:
+- configuração por variáveis de ambiente;
+- conexão assíncrona com PostgreSQL;
+- autenticação OIDC/Keycloak;
+- matriz de permissões;
+- tratamento uniforme de erros;
+- logging estruturado e correlation id.
 
-- `period` / `period_params` — resolução de período operacional (semestre,
-  competências) e parsing dos parâmetros de query;
-- `hashing` — geração de business key e content hash;
-- `normalization`, `dates`, `units` — normalização de texto, datas e
-  unidades vindas de planilhas;
-- `batching` — processamento de lotes de importação;
-- `incremental_upsert` — motor genérico de inserir/ignorar/atualizar por
-  business key, reaproveitado por todos os módulos com importação;
-- `publication_cycle` — resolução do ciclo (semestre) e do snapshot vigente
-  para um indicador;
-- `pagination`, `audit`, `schema` (modelo Pydantic com contrato camelCase).
+### `modules/`
 
-`app/core/` reúne infraestrutura transversal: configuração (`config.py`,
-via variáveis de ambiente), conexão com o banco (`database.py`),
-autenticação (`auth.py`), matriz de permissões (`permissions.py`),
-tratamento de erros HTTP (`errors.py`) e logging estruturado
-(`logging.py`).
+Cada domínio possui seu próprio pacote. Os módulos principais atuais são:
 
-## Fluxo de um indicador
+- `rdo`;
+- `idp`;
+- `rnc`;
+- `cinco_s`;
+- `scorecard`;
+- `dashboard`;
+- `imports`;
+- `indicators`;
+- `justifications`;
+- `users`;
+- `settings`;
+- `audit`.
 
-```text
-Arquivo (Excel/CSV) ou lançamento manual
-        │  parsing no navegador (frontend)
-        ▼
-POST /api/v1/importacoes/iniciar → .../lotes → .../finalizar
-        │  validação + business key/content hash + upsert incremental (backend)
-        ▼
-Persistência no PostgreSQL
-        │  recálculo do módulo
-        ▼
-Cálculo administrativo disponível em GET /api/v1/<modulo>
-        │  publicação
-        ▼
-POST /api/v1/publicacoes/<modulo> → snapshot versionado (IndicatorPublication)
-        │
-        ▼
-GET /api/v1/publicacoes/<modulo> → painel de leitura do indicador
-        │
-        ▼
-GET /api/v1/dashboard e GET /api/v1/scorecard → Painel Geral e Scorecard
-```
+Módulos de indicador separam, conforme a necessidade, tipos, schemas, cálculo, repositório, serviços, publicação e rotas. A regra de negócio não deve ficar diretamente no router.
 
-Os painéis de leitura (a aba "Painel" de cada indicador, o Painel Geral e o
-Scorecard) sempre leem **publicações/snapshots**, nunca os dados
-administrativos "ao vivo" diretamente — uma alteração feita na
-Administração só aparece no painel depois de uma nova publicação. A
-exceção é a própria Administração, que sempre trabalha com o dado vivo
-(ver `docs/modulos.md`).
+### `shared/`
+
+Utilitários reaproveitados entre módulos, incluindo período operacional, normalização, datas, unidades, hashing, paginação, batching e persistência incremental.
 
 ## Frontend
 
-O `frontend/` organiza-se por convenção do Nuxt:
+O frontend está em `frontend/` e segue as convenções do Nuxt.
 
 ```text
 frontend/
-├── pages/              # rotas (login, dashboard/<modulo>, administração)
-├── layouts/             # shell autenticado (cabeçalho + abas por ícone)
+├── app.vue
+├── pages/
+├── layouts/
 ├── components/
-│   ├── layout/           # AppHeader, TabsNav, ModuleWorkspace (switcher Painel/Administração)
-│   ├── indicators/        # PublishedPanel, IndicatorAdmin (genéricos, parametrizados por módulo)
-│   ├── charts/            # gráficos SVG (linha e barra)
-│   ├── admin/              # usuários, configurações, auditoria, histórico de importações
-│   └── ui/                  # modal, cartão de métrica
-├── composables/          # useApi (cliente HTTP), useAuth, useImports, useExport
-├── stores/                # Pinia — estado de autenticação
-├── middleware/            # guarda de rota (autenticado / admin)
-└── types/                 # contratos TypeScript espelhando as respostas da API
+│   ├── admin/
+│   ├── charts/
+│   ├── dashboard/
+│   ├── filters/
+│   ├── indicators/
+│   ├── layout/
+│   ├── scorecard/
+│   └── ui/
+├── composables/
+├── logic/
+├── middleware/
+├── services/
+├── stores/
+├── types/
+├── utils/
+└── assets/
 ```
 
-`PublishedPanel` e `IndicatorAdmin` são componentes genéricos que recebem o
-nome do módulo como prop e adaptam métricas, gráficos e tabelas — RDO, IDP e
-RNC reaproveitam os mesmos dois componentes em vez de ter uma tela própria
-cada um. A página do 5S (`/dashboard/cinco-s`) não usa mais esses
-componentes — mostra só um estado estático "Em breve" (o indicador saiu do
-Scorecard, mas os dados históricos e a API do módulo continuam intactos).
+### Páginas e workspaces
 
-## Importação de planilhas
+Os módulos operacionais usam `ModuleWorkspace`, separando:
 
-A leitura de Excel/CSV/PDF acontece **no navegador** — o parsing nunca
-acontece no backend. O frontend lê o arquivo, normaliza os campos e envia
-apenas o JSON já estruturado para a API, que então gera business key e
-content hash **no servidor** (fonte de verdade) e aplica o motor de
-importação incremental. Arquivos originais não são persistidos em nenhum
-momento. Ver `docs/importacao.md`.
+- **Painel**: leitura da publicação vigente;
+- **Administração**: importação, ajustes, cálculo, publicação e ações administrativas disponíveis ao perfil do usuário.
+
+RDO, IDP e RNC possuem operação completa. Horas Extras possui interface própria em preparação para a integração de dados. 5S mantém uma página própria com estado informativo.
+
+### Componentes compartilhados
+
+A aplicação reutiliza seletores de período/unidade, cards, estados vazios, modais e gráficos SVG. Componentes como `LineChart`, `BarChart`, `DonutChart` e `UnitProgressBars` são compartilhados entre os painéis.
+
+## Fluxo de dados
+
+O fluxo padrão dos módulos operacionais é:
+
+```text
+arquivo / entrada administrativa
+        ↓
+normalização e validação
+        ↓
+deduplicação + persistência incremental
+        ↓
+recálculo do módulo
+        ↓
+resultado administrativo
+        ↓
+publicação versionada
+        ↓
+painel publicado
+        ↓
+Painel Geral / Scorecard
+```
+
+A publicação cria uma visão estável para consulta. Alterações feitas na Administração não substituem automaticamente a publicação vigente até que uma nova publicação seja realizada.
+
+## Publicações
+
+`IndicatorPublication` representa os snapshots versionados exibidos nos painéis. O backend mantém a regra de qual publicação está ativa para cada módulo/ciclo.
+
+O Painel Geral e o Scorecard usam os resultados publicados dos módulos ativos, com snapshots próprios do Scorecard como respaldo histórico quando aplicável.
+
+## Importação
+
+A aplicação possui infraestrutura genérica de importação incremental. RDO e RNC aceitam upload direto de arquivos para o FastAPI, que faz parsing, validação, deduplicação e bulk upsert. IDP e 5S utilizam os fluxos atualmente implementados para seus respectivos formatos.
+
+Business key e content hash são gerados no backend e definem se um registro é inserido, atualizado ou ignorado.
+
+Veja [`importacao.md`](importacao.md).
 
 ## Autenticação e autorização
 
-Keycloak (OIDC) é o provedor de identidade; um bypass de desenvolvimento
-permite testar sem Keycloak real. Perfis `VIEWER`/`ANALYST`/`ADMIN` são
-sempre verificados no servidor. Ver `docs/autenticacao.md`.
+A autenticação corporativa usa Keycloak/OIDC. O backend valida o token e resolve o usuário local; permissões são derivadas do perfil persistido no banco.
 
-## Testes
+Perfis atuais:
 
-- **Backend** — `pytest`: unitários (cálculo, hashing, normalização, sem
-  banco), integração (fluxo HTTP completo contra um PostgreSQL real) e
-  contrato (`tests/contract/`, compara as funções compartilhadas —
-  hashing, normalização, datas, período — contra vetores fixos em
-  `tests/fixtures/contract_vectors.json`, com tolerância `1e-9`).
-- **Frontend** — `vitest`: utilitários puros (período, formatação).
+- `VIEWER`;
+- `ANALYST`;
+- `ADMIN`.
+
+Veja [`autenticacao.md`](autenticacao.md).
+
+## Banco de dados
+
+O backend usa SQLAlchemy 2 assíncrono com PostgreSQL. A evolução de schema é controlada pelo Alembic. O frontend não possui conexão direta com o banco.
+
+Veja [`banco-de-dados.md`](banco-de-dados.md).
+
+## Testes e qualidade
+
+Backend:
+
+- `pytest` / `pytest-asyncio`;
+- `ruff`;
+- `mypy`;
+- testes unitários, integração e contrato.
+
+Frontend:
+
+- `vitest`;
+- `eslint`;
+- `nuxt typecheck`;
+- `nuxt build`.
+
+As alterações devem preservar os contratos entre frontend e backend e evitar duplicação de regra de negócio entre as camadas.

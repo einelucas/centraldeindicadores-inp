@@ -1,32 +1,31 @@
 # Banco de dados
 
-PostgreSQL, acessado pelo backend via SQLAlchemy assíncrono (`asyncpg`) e
-versionado com Alembic. O frontend nunca acessa o banco diretamente.
+A Central de Indicadores usa PostgreSQL como banco principal. O backend acessa o banco por SQLAlchemy 2 assíncrono (`asyncpg`) e o schema é versionado com Alembic.
 
-## Tabelas principais
+O frontend nunca acessa o banco diretamente.
 
-- `User` — conta local, com `role` (`VIEWER`/`ANALYST`/`ADMIN`), `active`,
-  `authProvider` e `externalUserId` (identidade Keycloak);
-- `ImportJob`, `ImportBatch`, `ImportError` — rastreio das importações;
-- `IndicatorResult` — resultado administrativo consolidado por módulo,
-  unidade, ano e mês;
-- `IndicatorPublication` — snapshots versionados exibidos nos painéis de
-  leitura e no Scorecard;
-- `IndicatorJustification` — justificativas de exclusões/ajustes por
-  competência;
-- `RdoRecord`, `IdpRsoRecord`, `RncRecord`, `FiveSRecord` — registros
-  importados dos módulos com importação de arquivo;
-- `ScorecardSnapshot` — snapshots mensais salvos manualmente do Scorecard;
-- `AppSetting` — metas, listas de exclusão e demais parâmetros por módulo;
-- `AuditLog` — trilha de ações administrativas.
+## Modelos principais
 
-`Session`, `Account` e `Verification` seguem no schema por compatibilidade
-histórica, mas não são usados pelo fluxo de autenticação atual (Keycloak
-não depende de sessão local). `IdpRecord` também existe no schema mas não
-tem nenhum uso no código atual — `IdpRsoRecord` é o modelo que o cálculo do
-IDP realmente usa.
+- `User` — usuário local, perfil, status e vínculo com a identidade Keycloak;
+- `ImportJob`, `ImportBatch`, `ImportFile`, `ImportError` — rastreio do processamento de arquivos e lotes;
+- `IndicatorResult` — resultados administrativos consolidados;
+- `IndicatorPublication` — publicações versionadas exibidas pelos painéis;
+- `IndicatorJustification` — justificativas dos módulos suportados;
+- `RdoRecord` — registros do RDO;
+- `IdpRsoRecord` — registros de RSO usados pelo IDP;
+- `RncRecord` — registros de não conformidades;
+- `FiveSRecord` — registros do domínio 5S;
+- `ScorecardSnapshot` — snapshots mensais do Scorecard;
+- `AppSetting` — metas e parâmetros de aplicação;
+- `AuditLog` — trilha de auditoria.
 
-## Configurações oficiais (`AppSetting`)
+Alguns modelos auxiliares podem existir no schema sem participar do fluxo principal de autenticação ou cálculo. O uso efetivo de cada modelo deve ser verificado nos repositórios e serviços do backend.
+
+## Configurações (`AppSetting`)
+
+As configurações de negócio persistidas evitam hardcode de parâmetros que precisam ser alterados administrativamente.
+
+Exemplos de chaves atuais:
 
 | Chave | Valor padrão |
 |---|---:|
@@ -35,50 +34,68 @@ IDP realmente usa.
 | `rnc.maxPrazoDias` | 15 |
 | `fiveS.target` | 0,90 |
 | `fiveS.excludedUnits` | SP, CSC |
+| `scorecard.panelPeriod` | ciclo selecionado para o Painel Geral |
 
-Editáveis pela tela de Configurações da Administração
-(`PATCH /api/v1/configuracoes`), sem precisar de deploy.
+A tela de Configurações usa a API para ler e atualizar os valores permitidos.
 
-## Taxa de Acidentes (descontinuada)
+## Publicações
 
-O módulo Taxa de Acidentes foi removido no alinhamento 2026-alinhamento-v2
-(ver `docs/scorecard.md`) — código, rotas, navegação e as tabelas
-`AccidentMonthlyRecord`/`AccidentUnitRecord` não existem mais depois da
-migration `7c7156aae822_remove_taxa_acidentes`. Resíduos em tabelas
-compartilhadas (`IndicatorPublication`, `IndicatorResult`,
-`IndicatorJustification`, `AppSetting`, `AuditLog`, a chave `taxa_acidentes`
-dentro de `ScorecardSnapshot.raw`) são removidos por uma rotina controlada,
-nunca automaticamente:
+`IndicatorPublication` mantém snapshots versionados dos resultados publicados pelos módulos.
 
-```bash
-# a partir de backend/, com o venv ativado
-python scripts/remove_taxa_acidentes_data.py --dry-run   # só relata, não altera nada
-python scripts/remove_taxa_acidentes_data.py --apply     # remove de verdade + aplica a migration
-```
+A publicação é separada dos registros administrativos de origem. Isso permite editar/importar dados sem alterar imediatamente o painel de leitura.
 
-## Migrations
+O backend controla qual publicação está ativa para cada módulo e ciclo.
 
-```bash
-# a partir de backend/, com o venv ativado
-alembic upgrade head        # aplica migrations pendentes
-alembic revision --autogenerate -m "descrição"   # gera uma nova migration
-alembic stamp head           # marca a revisão como aplicada sem executar SQL
-```
+## Scorecard
 
-Regras de segurança aplicadas em código (`alembic/env.py`), não apenas em
-documentação:
+`ScorecardSnapshot` armazena snapshots mensais da consolidação do Scorecard. Esses snapshots são respaldo histórico e não substituem os registros ou publicações dos módulos de origem.
 
-- migrations só executam quando a variável `APP_ENV` do backend é `test`
-  ou `development` **e** `ALLOW_TEST_DB_MIGRATIONS=true`; qualquer outra
-  combinação interrompe a execução;
-- antes de rodar, o host/porta/usuário/banco (nunca a senha) são impressos
-  para conferência manual;
-- se a URL de conexão contiver qualquer indício textual de produção
-  (`prod`, `production`, `prd`), a migration é interrompida.
+Pesos e regras de participação dos indicadores não devem ser duplicados no banco como constantes arbitrárias; a fonte de verdade do Scorecard está no módulo `backend/app/modules/scorecard/`.
 
-## Script de apoio
+## Importações
+
+O histórico de importação registra o processamento e seus resultados. Dependendo do fluxo utilizado pelo módulo, podem existir informações de job, lote, arquivo e erros de linha.
+
+Business key e content hash dos registros são usados para persistência incremental e deduplicação.
+
+## Alembic
+
+Comandos principais, executados a partir de `backend/`:
 
 ```bash
-python scripts/check_schema_drift.py   # compara os modelos SQLAlchemy com o schema real do banco
-python scripts/seed.py                  # popera as configurações oficiais + um usuário de teste (idempotente)
+alembic upgrade head
+alembic revision --autogenerate -m "descricao"
+alembic stamp head
 ```
+
+### Segurança
+
+O ambiente possui salvaguardas para evitar execução acidental de migrations ou testes destrutivos contra bancos inadequados.
+
+Antes de aplicar migrations, confira:
+
+- `APP_ENV`;
+- `DATABASE_URL`;
+- banco/host de destino;
+- `ALLOW_TEST_DB_MIGRATIONS` quando exigido pelo ambiente.
+
+A suíte de integração deve usar um PostgreSQL dedicado a testes.
+
+## Scripts de apoio
+
+```bash
+python scripts/check_schema_drift.py
+python scripts/seed.py
+python scripts/export_openapi.py
+```
+
+- `check_schema_drift.py` compara os modelos SQLAlchemy com o schema acessível;
+- `seed.py` aplica dados/configurações iniciais de forma idempotente;
+- `export_openapi.py` exporta o contrato OpenAPI.
+
+## Fonte de verdade
+
+Modelos SQLAlchemy: `backend/app/models/`  
+Migrations: `backend/alembic/`  
+Configuração do banco: `backend/app/core/database.py`  
+Configuração da aplicação: `backend/app/core/config.py`

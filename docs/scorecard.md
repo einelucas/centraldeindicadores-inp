@@ -1,135 +1,116 @@
 # Scorecard
 
-O Scorecard consolida os quatro indicadores oficiais do ciclo semestral em
-uma única pontuação — três ativos (contabilizáveis) e um em desenvolvimento
-(peso reservado, ainda sem pontuação). Não tem importação nem lançamento
-próprio — lê exclusivamente as publicações dos outros módulos.
+O Scorecard consolida os indicadores oficiais da Central de Indicadores em ciclos semestrais.
 
-Alinhamento vigente: **2026-alinhamento-v2**. 5S não integra mais o
-Scorecard (aba mantida com "Em breve"); Taxa de Acidentes foi
-descontinuada e removida completamente (código, API e schema do banco —
-ver `docs/banco-de-dados.md`).
+Atualmente, três indicadores participam da pontuação realizada e um possui peso reservado:
 
-## Ciclo
+| Indicador | Área | Peso oficial | Meta | Estado |
+|---|---|---:|---:|---|
+| Aprovação RDO | Obras | 35% | ≥ 80% | Ativo |
+| Aderência ao Cronograma (IDP) | Planejamento | 40% | ≥ 90% | Ativo |
+| RNC | Conformidade de Obra | 15% | ≤ 15 dias | Ativo |
+| Horas Extras Pagas | RH | 10% | referência ≤ 1% | Em desenvolvimento |
 
-O ciclo é sempre um semestre inteiro, escolhido por um seletor de Ano +
-Semestre (o mesmo padrão usado nos demais painéis administrativos):
+O 5S não participa do Scorecard.
+
+## Ciclos
+
+O sistema trabalha com ciclos semestrais fixos:
 
 - **S2**: junho a novembro do ano selecionado;
-- **S1**: dezembro do ano **anterior** a maio do ano selecionado (ex.: S1
-  2027 = dez/2026 a mai/2027 — o "ano do período" é sempre o ano de
-  término).
+- **S1**: dezembro do ano anterior a maio do ano selecionado.
 
-Não existe filtro livre de "de/até": o período usado tanto pela
-Administração quanto pelo Painel Geral é sempre um desses dois semestres
-inteiros (`backend/app/shared/period.py`).
+Exemplo: `S1 2027` representa dezembro de 2026 a maio de 2027.
 
-## Pesos oficiais e contabilizáveis
+## Pontuação
+
+A pontuação máxima oficial do ciclo é **11.582 pontos**.
 
 ```text
-pontuação máxima do ciclo (oficial)     = 11.582 pontos
-pontuação máxima mensal (oficial)       = 11.582 / 6 = 1.930,333333 pontos
-pontos possíveis do indicador (por mês) = pontuação mensal × peso
-pontos realizados                        = meta cumprida ? pontos possíveis : 0
+pontuação máxima mensal = 11.582 / 6
+pontos possíveis do indicador = pontuação mensal × peso oficial
 ```
 
-| Indicador | Área | Peso oficial | Meta | Situação | Pontos/mês |
-|---|---|---:|---:|---|---:|
-| Aprovação RDO | Obras | 35,00% | ≥ 80% | Ativo | 675,616667 |
-| Aderência ao Cronograma (IDP) | Planejamento | 40,00% | ≥ 90% | Ativo | 772,133333 |
-| RNC | Conformidade de Obra | 15,00% | ≤ 15 dias | Ativo | 289,55 |
-| Horas Extras Pagas | RH | 10,00% | referência 1 | **Em desenvolvimento** | 193,033333 (reservado) |
-| **Total oficial** | | **100,00%** | — | | **1.930,333333** |
+Para os indicadores ativos, o cálculo mensal é binário:
 
-Enquanto Horas Extras estiver em desenvolvimento:
+```text
+meta atingida     → recebe os pontos possíveis do mês
+meta não atingida → recebe 0 ponto
+```
 
-- **peso oficial total**: 100% (11.582 pontos no ciclo);
-- **peso contabilizável**: 90% (10.423,80 pontos no ciclo / 1.737,30 por mês) —
-  soma de RDO + Cronograma + RNC;
-- **peso reservado**: 10% (1.158,20 pontos no ciclo / 193,033333 por mês) —
-  Horas Extras, nunca pontua, nunca prejudica o resultado;
-- o **percentual de atendimento dos indicadores ativos** usa como
-  denominador só o pool contabilizável — com RDO, Cronograma e RNC todos na
-  meta, o atendimento ativo é **100%**, não 90%;
-- os pesos de RDO/Cronograma/RNC **não são redistribuídos** para
-  "compensar" o peso reservado (nunca 38,89% / 44,44% / 16,67%).
+Regras de direção:
 
-Quando Horas Extras for ativado no futuro (fórmula, fonte e regra de
-comparação definidas), o mesmo motor passa de 90% para 100% de peso
-contabilizável automaticamente — sem redistribuição e sem reescrever o
-cálculo. A fonte única de verdade de peso/meta/área/status de cada
-indicador é `backend/app/modules/scorecard/types.py::SC_INDICATORS` — uma
-união discriminada (`ActiveScorecardIndicator` vs.
-`DevelopmentScorecardIndicator`) que impede, em tempo de compilação
-(mypy), que um indicador em desenvolvimento seja enviado para a função de
-pontuação (`calculations.score_indicator`).
+- RDO: resultado `≥` meta;
+- IDP: resultado `≥` meta;
+- RNC: resultado `≤` meta.
 
-Regras:
+A precisão decimal é preservada no cálculo e o arredondamento ocorre na apresentação.
 
-- **binário por indicador e por mês** — meta cumprida recebe a parcela
-  inteira daquele mês; caso contrário, zero. Não há pontuação parcial.
-- indicadores "maior ou igual" atendem quando `resultado ≥ meta`;
-  indicadores "menor ou igual" (RNC) atendem quando `resultado ≤ meta`.
-- **resultado ausente conta como zero ponto** (nunca é ignorado do total),
-  exceto Horas Extras, que nunca é avaliado (não tem fórmula/fonte ainda) —
-  seu status é sempre "Em desenvolvimento — não contabilizado", nunca "fora
-  da meta" ou "sem dados".
-- a precisão decimal é mantida durante todo o cálculo; o arredondamento
-  acontece só na exibição/exportação.
-- a soma máxima oficial do ciclo permanece **11.582 pontos**, mesmo que
-  algum mês ainda não tenha dado disponível.
+## Peso contabilizável e peso reservado
 
-## Origem dos valores
+Enquanto Horas Extras Pagas não possui fonte e fórmula operacional completas:
 
-O painel de Administração do Scorecard **não permite edição manual** —
-nenhum valor é digitado diretamente ali. Cada valor exibido é sempre um
-destes dois:
+- peso oficial total: **100%**;
+- peso contabilizável: **90%**;
+- peso reservado: **10%**.
 
-1. o valor **ao vivo** publicado pelo módulo de origem (RDO/IDP/RNC) para
-   aquele mês; ou
-2. o último **snapshot salvo** (via botão "Salvar snapshot", que grava o
-   valor ao vivo do momento do clique — nunca um ajuste manual digitado).
+Os 10% reservados não geram pontos e também não reduzem artificialmente o percentual de atendimento dos indicadores ativos.
 
-Overrides manuais só são aceitos para os indicadores **ativos**
-(RDO/Cronograma/RNC) — uma tentativa de enviar `horasExtras` (ou os
-indicadores removidos `5s`/`taxaAcidentes`) em `overrides` é rejeitada com
-422 pelo backend.
+Os pesos de RDO, IDP e RNC não são redistribuídos.
 
-O valor ao vivo sempre prevalece sobre o snapshot salvo quando os dois
-existem para o mesmo indicador/mês; o snapshot só é usado como respaldo
-quando não há valor ao vivo disponível (por exemplo, módulo sem
-publicação ativa naquele momento). Essa regra vive em
-`backend/app/modules/scorecard/service.py`.
+## Horas Extras Pagas
 
-O botão "Limpar histórico" (somente `ADMIN`) apaga os snapshots salvos do
-ciclo selecionado — os dados publicados nos módulos de origem não são
-afetados e continuam disponíveis na leitura ao vivo.
+O módulo já possui referências de negócio para apresentação:
 
-Novos snapshots gravam a política vigente (`"policy": "2026-alinhamento-v2"`)
-dentro de `raw`. Snapshots antigos sem esse campo continuam sendo lidos
-normalmente. Chaves de indicadores antigos que não existem mais em
-`SC_INDICATORS` (`5s`) são ignoradas silenciosamente pelo parser — nunca
-causam erro. A chave `taxa_acidentes` é a única exceção: ela é removida
-ativamente dos snapshots antigos pela rotina controlada
-`backend/scripts/remove_taxa_acidentes_data.py --apply` (ver
-`docs/banco-de-dados.md`), preservando os demais valores e recalculando o
-`contentHash`.
+- unidade: `%`;
+- direção: menor é melhor;
+- meta de referência: `≤ 1%`;
+- faixa de 80%: `> 1% e ≤ 2%`;
+- peso: `10%`.
+
+A ativação da pontuação só deve ocorrer quando estiverem definidos e implementados:
+
+1. fonte de dados oficial;
+2. layout de importação;
+3. fórmula final;
+4. todas as faixas de pontuação;
+5. validação do resultado com a área responsável.
+
+Até lá, o indicador permanece fora do cálculo realizado.
+
+## Fonte dos valores
+
+O Scorecard não recebe digitação manual de resultado de negócio.
+
+Os valores vêm das publicações dos módulos ativos. O backend pode utilizar snapshots do Scorecard como respaldo histórico quando não há um valor publicado disponível para a competência correspondente.
+
+O valor publicado mais atual prevalece sobre o snapshot de respaldo.
+
+## Snapshots
+
+O Scorecard permite salvar snapshots mensais para preservar a visão consolidada de uma competência.
+
+Os snapshots:
+
+- não alteram os dados de origem;
+- não substituem uma publicação mais atual;
+- podem ser consultados no histórico do ciclo;
+- podem ser limpos por usuários autorizados sem apagar publicações dos módulos.
 
 ## Painel Geral
 
-O Painel Geral usa exclusivamente snapshots/publicações ativas dos módulos
-— nunca dados administrativos não publicados — e mantém a pontuação
-prevista oficial em 11.582 pontos para o ciclo completo, mesmo com meses
-ainda sem publicação. Expõe os mesmos campos de pool contabilizável/
-reservado do Scorecard (`pontuacaoPrevistaContabilizavel`,
-`pontosReservados`, `atendimentoAtivosGeral`, `coberturaAtivaPct`).
+O Painel Geral usa as mesmas fontes oficiais do Scorecard e apresenta a consolidação do ciclo selecionado.
 
-## Horas Extras Pagas (em desenvolvimento)
+Campos relevantes incluem:
 
-Aba própria em `/dashboard/horas-extras`, entre RNC e 5S na navegação.
-Mostra só um estado informativo — sem formulário, sem importador, sem
-gráfico, sem dado simulado, sem chamada de API: o indicador já tem peso
-oficial de 10% reservado no Scorecard, mas ainda não participa dos
-cálculos. Fórmula, origem dos dados, unidade da meta e regra de comparação
-ficam para quando a regra de negócio for definida — a meta de referência
-`1` é só um metadado até lá.
+- pontuação prevista oficial;
+- pontuação contabilizável;
+- pontos reservados;
+- atendimento dos indicadores ativos;
+- cobertura ativa do Scorecard.
+
+## Fonte de verdade
+
+Pesos, metas, direção e estado de participação dos indicadores do Scorecard vivem no backend, em `backend/app/modules/scorecard/types.py`.
+
+A lógica de cálculo está em `backend/app/modules/scorecard/calculations.py` e a composição dos dados em `backend/app/modules/scorecard/service.py`.

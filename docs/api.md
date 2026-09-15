@@ -1,102 +1,186 @@
 # API
 
-Toda rota vive sob o prefixo `/api/v1`. Documentação interativa gerada
-automaticamente pelo FastAPI: `/docs` (Swagger UI), `/redoc` e
-`/openapi.json` (schema bruto), com o servidor local rodando.
+A API da Central de Indicadores é fornecida pelo FastAPI e usa o prefixo `/api/v1`.
 
-Toda rota de negócio exige autenticação e a permissão correspondente,
-verificadas no servidor — ver `docs/autenticacao.md`.
+Com o backend em execução:
 
-## Saúde
+- Swagger UI: `/docs`;
+- ReDoc: `/redoc`;
+- OpenAPI: `/openapi.json`.
 
-```text
-GET /health/live      liveness (a API está de pé)
-GET /health/ready       readiness (a API consegue falar com o banco)
-GET /auth/me            identidade e permissões do usuário autenticado
-```
+As rotas de negócio exigem autenticação e a permissão correspondente.
 
-## Painel Geral e Scorecard
+## Saúde e autenticação
 
 ```text
-GET  /dashboard                                monta o Painel Geral a partir das publicações ativas
-GET  /available-periods                        lista os períodos/ciclos disponíveis para os seletores
-
-GET  /scorecard?year=&month=                    consolida um mês (ao vivo, com snapshot salvo como respaldo)
-POST /scorecard                                  salva um snapshot com os valores ao vivo do mês informado
-GET  /scorecard/history?periodStartYear=&...     lista os snapshots salvos do ciclo
-DELETE /scorecard/history?periodStartYear=&...   apaga os snapshots salvos do ciclo (ADMIN)
-GET  /scorecard/panel-period                      lê o ciclo usado pelo Painel Geral
-PATCH /scorecard/panel-period                      define o ciclo usado pelo Painel Geral
+GET /api/v1/health/live
+GET /api/v1/health/ready
+GET /api/v1/auth/me
 ```
 
-## Módulos de indicador
-
-Cada módulo segue o mesmo formato: leitura/edição administrativa em
-`/<modulo>`, exclusão em massa em `/<modulo>/registros`, publicação em
-`/publicacoes/<modulo>`.
+## Painel Geral
 
 ```text
-GET|PATCH        /rdo
-GET|PATCH|DELETE /rdo/registros
-
-GET              /idp
-GET|DELETE       /idp/registros
-
-GET|PATCH        /rnc
-GET|PATCH|DELETE /rnc/registros
-
-GET|PATCH        /cinco-s
-GET|DELETE       /cinco-s/registros
-
-GET|POST  /publicacoes/rdo
-GET|POST  /publicacoes/idp
-GET|POST  /publicacoes/rnc
-GET|POST  /publicacoes/cinco-s
+GET /api/v1/dashboard
+GET /api/v1/available-periods
 ```
 
-Taxa de Acidentes foi descontinuada (alinhamento 2026-alinhamento-v2) —
-`/taxa-acidentes`, `/taxa-acidentes/registros` e `/publicacoes/taxa-acidentes`
-não existem mais; qualquer chamada retorna 404.
+O Painel Geral é montado a partir das publicações disponíveis para o ciclo selecionado.
 
-`GET .../registros` retorna a contagem de registros afetados por um
-período (ou pela base inteira); `DELETE` no mesmo caminho executa a
-exclusão — nunca da publicação vigente. Ver `docs/importacao.md`.
-
-## Importação
+## Scorecard
 
 ```text
-POST /importacoes/iniciar             cria um job de importação, retorna importJobId
-POST /importacoes/{id}/lotes           processa um lote de registros normalizados
-POST /importacoes/{id}/finalizar       conclui o job e recalcula o módulo
-GET  /importacoes/{id}                 status e detalhe de um job
-GET  /importacoes/{id}/erros           erros de linha do job
-GET  /importacoes                       lista jobs
+GET    /api/v1/scorecard
+POST   /api/v1/scorecard
+GET    /api/v1/scorecard/history
+DELETE /api/v1/scorecard/history
+GET    /api/v1/scorecard/panel-period
+PATCH  /api/v1/scorecard/panel-period
 ```
 
-## Administração geral
+Responsabilidades:
+
+- consolidar os resultados mensais dos indicadores oficiais;
+- calcular pontos possíveis e realizados;
+- salvar snapshots de respaldo;
+- consultar/limpar histórico;
+- definir o ciclo utilizado no Painel Geral.
+
+## RDO
 
 ```text
-GET       /indicadores                     leitura consolidada para telas administrativas
-GET|PATCH /configuracoes                    metas, listas de exclusão e demais parâmetros
-GET|POST  /usuarios                         lista/cria usuários (ADMIN)
-PATCH     /usuarios/{id}                    edita nome/perfil/status (ADMIN)
-GET       /auditoria                        trilha de auditoria (ADMIN)
-GET|PUT|DELETE /justificativas              justificativa textual por indicador/competência
-GET       /justificativas/sugestao          sugestão recalculada a partir dos dados do módulo
+GET    /api/v1/rdo
+PATCH  /api/v1/rdo
+GET    /api/v1/rdo/registros
+PATCH  /api/v1/rdo/registros
+DELETE /api/v1/rdo/registros
+
+GET  /api/v1/publicacoes/rdo
+POST /api/v1/publicacoes/rdo
 ```
+
+## IDP
+
+```text
+GET    /api/v1/idp
+GET    /api/v1/idp/registros
+DELETE /api/v1/idp/registros
+
+GET  /api/v1/publicacoes/idp
+POST /api/v1/publicacoes/idp
+```
+
+## RNC
+
+```text
+GET    /api/v1/rnc
+PATCH  /api/v1/rnc
+GET    /api/v1/rnc/registros
+PATCH  /api/v1/rnc/registros
+DELETE /api/v1/rnc/registros
+
+GET  /api/v1/publicacoes/rnc
+POST /api/v1/publicacoes/rnc
+```
+
+## 5S
+
+O backend mantém rotas do domínio 5S para os dados existentes e sua infraestrutura administrativa:
+
+```text
+GET    /api/v1/cinco-s
+PATCH  /api/v1/cinco-s
+GET    /api/v1/cinco-s/registros
+DELETE /api/v1/cinco-s/registros
+
+GET  /api/v1/publicacoes/cinco-s
+POST /api/v1/publicacoes/cinco-s
+```
+
+A interface dedicada do 5S está atualmente em estado informativo e o indicador não participa do Scorecard.
+
+## Horas Extras Pagas
+
+A interface de Horas Extras está preparada no frontend, mas ainda não possui fonte de dados e API operacional própria para importação/cálculo. Seu peso de 10% permanece reservado no Scorecard.
+
+## Importações
+
+### Upload direto
+
+Usado pelos módulos que possuem parser de arquivo no backend, como RDO e RNC:
+
+```text
+POST /api/v1/importacoes/{modulo}/arquivos
+```
+
+### Jobs em lotes
+
+```text
+POST /api/v1/importacoes/iniciar
+POST /api/v1/importacoes/{id}/lotes
+POST /api/v1/importacoes/{id}/finalizar
+GET  /api/v1/importacoes/{id}
+GET  /api/v1/importacoes/{id}/erros
+GET  /api/v1/importacoes
+```
+
+Veja [`importacao.md`](importacao.md).
+
+## Indicadores e configurações
+
+```text
+GET       /api/v1/indicadores
+GET|PATCH /api/v1/configuracoes
+```
+
+As configurações incluem metas e parâmetros persistidos usados pelos módulos.
+
+## Usuários
+
+```text
+GET  /api/v1/usuarios
+POST /api/v1/usuarios
+PATCH /api/v1/usuarios/{id}
+```
+
+O gerenciamento de usuários exige perfil autorizado.
+
+## Auditoria
+
+```text
+GET /api/v1/auditoria
+```
+
+Retorna a trilha de ações administrativas registrada pelo backend.
+
+## Justificativas
+
+As justificativas são disponibilizadas para os módulos operacionais suportados pela implementação atual.
+
+```text
+GET    /api/v1/justificativas
+PUT    /api/v1/justificativas
+DELETE /api/v1/justificativas
+GET    /api/v1/justificativas/sugestao
+```
+
+A sugestão é gerada a partir dos dados do próprio módulo; não é um texto fixo.
 
 ## Exemplos
 
 ```bash
 curl http://localhost:8000/api/v1/health/live
 
-curl -H "Authorization: Bearer dev-admin" http://localhost:8000/api/v1/auth/me
+curl -H "Authorization: Bearer dev-admin" \
+  http://localhost:8000/api/v1/auth/me
 
-curl -H "Authorization: Bearer dev-viewer" http://localhost:8000/api/v1/dashboard
+curl -H "Authorization: Bearer dev-viewer" \
+  http://localhost:8000/api/v1/dashboard
 
-curl -H "Authorization: Bearer dev-viewer" "http://localhost:8000/api/v1/rdo?periodStartYear=2027&periodStartMonth=6&periodEndYear=2027&periodEndMonth=11"
-
-curl -X POST -H "Authorization: Bearer dev-analyst" -H "Content-Type: application/json" \
-  -d '{"module":"rdo","fileName":"planilha.xlsx","totalFound":2}' \
-  http://localhost:8000/api/v1/importacoes/iniciar
+curl -H "Authorization: Bearer dev-viewer" \
+  "http://localhost:8000/api/v1/rdo?periodStartYear=2027&periodStartMonth=6&periodEndYear=2027&periodEndMonth=11"
 ```
+
+## Fonte de verdade
+
+O agregador de rotas está em `backend/app/api/v1/router.py`. Para contratos exatos de request/response, consulte o OpenAPI gerado pela aplicação e os schemas Pydantic de cada módulo.

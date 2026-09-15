@@ -108,7 +108,7 @@ SC_INDICATORS: tuple[ScorecardIndicator, ...] = (
         label="Horas Extras Pagas",
         area="RH",
         peso=10,
-        meta_reference=1,
+        meta_reference=1.0,  # 1%
     ),
 )
 

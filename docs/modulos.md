@@ -1,96 +1,143 @@
 # Módulos
 
-A Central de Indicadores acompanha quatro indicadores oficiais do
-Scorecard (RDO, IDP/Cronograma, RNC e Horas Extras — este último em
-desenvolvimento), mais o 5S (aba própria, fora do cálculo do Scorecard) e
-uma área administrativa transversal.
+A Central de Indicadores organiza os indicadores operacionais em módulos independentes, com backend FastAPI e interface Nuxt/Vue.
 
-Cada indicador com operação plena (RDO, IDP, RNC) segue o mesmo padrão de
-tela: uma sub-aba **Painel** (somente leitura, mostra a publicação
-vigente) e uma sub-aba **Administração** (dados ao vivo — importação,
-configuração de meta, publicação), alternadas pelo switcher no canto
-superior direito da barra de abas.
+## Visão geral
 
-## RDO — Aprovação de relatórios
+| Módulo | Estado | Meta principal | Peso no Scorecard |
+|---|---|---:|---:|
+| RDO | Operacional | ≥ 80% de aprovação | 35% |
+| IDP / Cronograma | Operacional | ≥ 90% de aderência | 40% |
+| RNC | Operacional | ≤ 15 dias | 15% |
+| Horas Extras Pagas | Interface preparada / regra parcial | ≤ 1% de referência | 10% reservado |
+| 5S | Página informativa | — | Fora do Scorecard |
+| Scorecard | Operacional | Consolidação semestral | — |
+| Painel Geral | Operacional | Visão consolidada | — |
 
-Calcula a taxa de aprovação dos Relatórios Diários de Obra por unidade e
-mês, a partir de planilhas Excel/CSV importadas. Cada linha é identificada
-por relatório + data + empresa + grupo + disciplina (um mesmo relatório
-pode ter várias linhas, uma por grupo/disciplina). O status de cada linha
-pode ser editado manualmente na Administração (Aprovado / Revisar
-Relatório / Preenchendo Relatório).
+## RDO — Aprovação de Relatórios Diários de Obra
 
-- meta padrão: **80%** de aprovação;
-- peso no Scorecard: **35%**.
+O módulo RDO acompanha a aprovação dos Relatórios Diários de Obra por unidade, mês e ciclo.
 
-## IDP — Aderência ao cronograma
+Principais recursos:
 
-Consolida a aderência ao cronograma físico de obra por disciplina, unidade
-e mês, a partir de PDFs de RSO (Relatório de Serviço/Obra) importados e
-lidos no navegador. Compara linha de base (planejado) com execução real.
+- importação de arquivos Excel/CSV;
+- normalização e deduplicação no backend;
+- atualização incremental por business key + content hash;
+- cálculo de relatórios emitidos, aprovados, em revisão e em preenchimento;
+- leitura mensal e por unidade;
+- edição administrativa dos status suportados;
+- publicação versionada;
+- painel publicado com filtros de período e unidade;
+- exportação em PDF;
+- justificativas administrativas.
 
-- meta padrão: **90%** de aderência;
-- peso no Scorecard: **40%** (o de maior peso).
+**Meta padrão:** 80% de aprovação.  
+**Peso:** 35%.
 
-## RNC — Não conformidades
+## IDP — Aderência do Cronograma
 
-Acompanha o prazo médio de tratativa das Não Conformidades por unidade,
-identificando os principais ofensores. Duas definições de "resolvida"
-convivem no cálculo (data de solução informada vs. tratativa concluída) —
-os detalhes de arredondamento e critério vivem no código do módulo
-(`backend/app/modules/rnc/`).
+O IDP consolida a aderência da execução física ao cronograma por RSO, disciplina, unidade e período.
 
-- meta padrão: **15 dias** (quanto menor, melhor);
-- peso no Scorecard: **15%**.
+Principais recursos:
 
-## Horas Extras Pagas (em desenvolvimento)
+- importação e tratamento dos dados de RSO;
+- cálculo da aderência planejado × realizado;
+- consolidação por disciplina, unidade e competência;
+- filtros por período e unidade;
+- publicação versionada;
+- visualização da aderência geral e detalhada;
+- justificativas administrativas.
 
-Quarto indicador oficial do Scorecard, com peso de **10%** já reservado,
-mas ainda sem fórmula, fonte de dados ou regra de comparação definidas.
-Aba própria em `/dashboard/horas-extras` (entre RNC e 5S na navegação),
-mostrando só um estado informativo — sem formulário, importador, gráfico
-ou chamada de API. Nunca pontua, nunca aparece como "fora da meta" ou "sem
-dados"; o status é sempre "Em desenvolvimento — não contabilizado". Ver
-`docs/scorecard.md` para a separação entre peso oficial e contabilizável.
+**Meta padrão:** 90% de aderência.  
+**Peso:** 40%.
 
-## 5S — Programa 5S
+## RNC — Não Conformidades
 
-Não integra mais o Scorecard (alinhamento 2026-alinhamento-v2). A aba
-`/dashboard/cinco-s` continua na navegação, mas mostra só "Em breve" — sem
-painel publicado, sem administração, sem chamada de API. Os dados
-históricos e a API do módulo (`backend/app/modules/cinco_s/`) permanecem
-intactos; só a UI dedicada e a participação no cálculo foram removidas.
+O módulo RNC acompanha o tempo de tratativa das não conformidades e sua distribuição por unidade e origem.
 
-## Scorecard e Painel Geral
+Principais recursos:
 
-Consolida os quatro indicadores oficiais (três ativos + Horas Extras
-reservado) em um único painel por ciclo semestral. Não tem importação nem
-lançamento próprio — lê exclusivamente as publicações ativas dos outros
-módulos (ao vivo) ou snapshots salvos manualmente como respaldo histórico.
-Ver `docs/scorecard.md` para as regras completas de pontuação.
+- importação de planilhas;
+- cálculo do prazo médio de resolução;
+- consolidação de registros criados e tratados;
+- identificação de ofensores/origens;
+- leitura mensal e por unidade;
+- publicação versionada;
+- painel com comparação de resultado, meta e aderência de tratativa;
+- justificativas administrativas.
 
-## Justificativas
+**Meta padrão:** até 15 dias.  
+**Peso:** 15%.
 
-Cada indicador permite registrar uma justificativa textual por competência
-(mês/ano), com uma sugestão gerada automaticamente a partir dos próprios
-dados do módulo (recalculada sob demanda, não um texto fixo). Útil para
-documentar por que uma meta não foi atingida ou por que um período ficou
-sem publicação.
+A direção desse indicador é **menor é melhor**.
+
+## Horas Extras Pagas
+
+Módulo de RH destinado ao acompanhamento do percentual de horas extras pagas por unidade e período.
+
+A interface já está estruturada no mesmo padrão visual dos demais indicadores e possui as seguintes regras conhecidas:
+
+- unidade esperada: `%`;
+- direção: **menor é melhor**;
+- meta de referência: **≤ 1%**;
+- faixa de desempenho de 80%: **> 1% e ≤ 2%**;
+- peso oficial: **10%**.
+
+A fonte de dados, a fórmula operacional completa e as demais faixas de pontuação ainda não estão definidas. Por isso, o peso permanece **reservado** e não participa da pontuação realizada do Scorecard.
+
+A aba possui Painel e Administração, mas a importação permanece bloqueada até existir um layout oficial de dados.
+
+## 5S
+
+A aplicação mantém uma página dedicada ao 5S, atualmente em estado informativo **Em breve**.
+
+O 5S não participa do Scorecard atual.
+
+## Scorecard
+
+O Scorecard consolida o desempenho do ciclo semestral e calcula a pontuação dos indicadores oficiais ativos.
+
+Ele não possui uma base de dados independente de resultados de negócio: consome as publicações dos módulos de origem e mantém snapshots próprios como respaldo histórico.
+
+Veja [`scorecard.md`](scorecard.md).
+
+## Painel Geral
+
+O Painel Geral apresenta uma visão consolidada do ciclo selecionado, incluindo:
+
+- resultado dos indicadores ativos;
+- pontuação prevista;
+- pontuação contabilizável;
+- pontos reservados;
+- cobertura do Scorecard;
+- leitura por unidade e período quando disponível.
+
+A fonte é sempre a publicação vigente dos módulos, não os dados administrativos ainda não publicados.
 
 ## Administração
 
-Área transversal, disponível para os perfis `ANALYST` e `ADMIN`, reunindo:
+A área administrativa reúne recursos transversais da aplicação:
 
-- **Importações** — histórico de jobs, lotes processados e registros
-  rejeitados por módulo;
-- **Usuários** — cadastro, perfil de acesso e ativação (`ADMIN`);
-- **Auditoria** — trilha de ações administrativas (`ADMIN`);
-- **Configurações** — metas, listas de unidades excluídas e demais
-  parâmetros por módulo, persistidos como configuração de aplicação (não
-  hardcoded).
+- **Importações** — histórico e erros de processamento;
+- **Usuários** — perfis, ativação e gerenciamento de acesso;
+- **Configurações** — metas e parâmetros persistidos;
+- **Auditoria** — trilha de ações administrativas;
+- **Justificativas** — registro e sugestão para os módulos operacionais suportados.
 
-Todo painel administrativo de indicador trava o período de trabalho em um
-seletor de Ano + Semestre. A exclusão de registros administrativos segue
-sempre o mesmo padrão: primeiro uma contagem do que será afetado, depois a
-exclusão em si (por período ou base inteira) — nunca remove a publicação
-vigente, apenas os dados administrativos de origem.
+As permissões variam conforme o perfil do usuário e são validadas no backend.
+
+## Publicação
+
+Nos módulos operacionais, o fluxo é:
+
+```text
+Dados administrativos
+      ↓
+Cálculo
+      ↓
+Publicação versionada
+      ↓
+Painel somente leitura
+```
+
+Uma alteração na Administração não substitui automaticamente a publicação vigente até que uma nova publicação seja realizada.

@@ -1,172 +1,162 @@
 # Importação de dados
 
-RDO, IDP, RNC e 5S recebem dados por importação de arquivo (Excel, CSV ou
-PDF, dependendo do módulo).
+A Central de Indicadores possui uma infraestrutura comum para importar dados, validar registros, evitar duplicidades e recalcular os módulos.
 
-**Estado da migração (ver plano de fases):** RDO e RNC já usam o fluxo novo,
-descrito abaixo, com parsing/validação/normalização/dedup/persistência
-inteiramente no FastAPI. 5S e IDP ainda usam o fluxo antigo (parsing no
-navegador + 3 chamadas), documentado na seção "Fluxo antigo" — serão
-migrados nas próximas fases, reaproveitando a mesma infraestrutura
-(`app/modules/imports/parsers/`, `bulk_upsert.py`) já construída para RDO.
+Os detalhes variam conforme o formato de origem de cada indicador, mas a fonte de verdade para identidade e alteração de registros está sempre no backend.
 
 ## Princípios
 
-- **nunca apaga o período.** A ausência de uma linha em uma nova planilha
-  não remove o que já existe para aquele mês/unidade.
-- **parsing no servidor (RDO e RNC) / no navegador (5S e IDP — por enquanto).**
-  Para os módulos já migrados, o arquivo original é enviado por
-  `multipart/form-data` e lido/normalizado inteiramente no FastAPI — o
-  navegador nunca interpreta Excel/CSV/PDF. Para os módulos ainda no fluxo
-  antigo, o arquivo é lido no cliente e só o JSON já estruturado é enviado.
-- **chaves geradas no servidor.** Em ambos os fluxos, é a API quem gera a
-  business key e o content hash de cada registro — essa é a fonte de
-  verdade, nunca o cliente.
-- **idempotência.** No fluxo novo, todo o upload de um envio é identificado
-  por um cabeçalho `Idempotency-Key`; reenviar os mesmos arquivos com a
-  mesma chave devolve o resultado já processado em vez de reprocessar. No
-  fluxo antigo, cada lote é identificado por `(importJobId, batchNumber)`.
+- uma nova importação não apaga automaticamente registros que não aparecem no arquivo novo;
+- cada registro possui uma identidade lógica (`business key`);
+- alterações de conteúdo são detectadas por `content hash`;
+- business key e content hash são gerados no backend;
+- registros idênticos são ignorados;
+- registros com a mesma identidade e conteúdo alterado são atualizados;
+- erros de validação são registrados com contexto suficiente para diagnóstico;
+- o módulo é recalculado após a persistência bem-sucedida dos dados.
 
 ## Business key e content hash
 
-Toda importação incremental depende de duas chaves geradas no servidor
-para decidir entre inserir, ignorar ou atualizar um registro
-(`backend/app/shared/hashing.py`):
+### Business key
 
-- **business key** — identidade lógica do registro: "isto representa a
-  mesma coisa do mundo real que já está no banco?". Composta pelos campos
-  **estáveis** (que não mudam entre reimportações) e indexada como única
-  no banco.
-- **content hash** — hash apenas dos campos **mutáveis** (por exemplo, o
-  status de um relatório). Se a business key já existe e o content hash é
-  igual, o registro é idêntico → ignorado. Se o hash mudou, só aquele
-  registro é atualizado.
+Representa a identidade do registro no domínio.
 
-Separar identidade de conteúdo permite corrigir um campo mutável (como
-status) **sem duplicar a linha** e sem apagar o histórico do período. Essa
-lógica é idêntica nos dois fluxos — o que muda entre eles é só onde o
-arquivo é lido, nunca como a chave/hash são calculados.
-
-### Exemplo — RDO
-
-Um mesmo relatório pode gerar várias linhas (uma por grupo/disciplina), e o
-`relatorioId` sozinho não identifica uma linha:
+Exemplo conceitual:
 
 ```text
-businessKey(RDO) = SHA-256("RDO" | relatorioId | dataISO | empresaNome | grupo | disciplina)
-contentHash(RDO) = SHA-256({ statusDescricao, responsavel, observacao })
+businessKey = hash(campos estáveis que identificam o registro)
 ```
 
-Implementação em `backend/app/modules/rdo/keys.py`; helpers genéricos em
-`backend/app/shared/hashing.py`.
+### Content hash
 
-| Situação na reimportação | Resultado |
+Representa o conteúdo mutável daquele registro.
+
+```text
+contentHash = hash(campos cujo valor pode mudar numa reimportação)
+```
+
+Com isso, o backend decide:
+
+| Situação | Ação |
 |---|---|
-| Linha nova (business key inédita) | inserida |
-| Linha idêntica (mesma chave, mesmo hash) | ignorada |
-| Mesmo relatório, status mudou (mesma chave) | atualizada |
-| Linha ausente na nova planilha | mantida como estava |
+| business key nova | inserir |
+| mesma business key + mesmo content hash | ignorar |
+| mesma business key + content hash diferente | atualizar |
 
-## Fluxo novo — upload direto (RDO e RNC)
+## Exemplo — RDO
+
+Um relatório pode produzir mais de uma linha quando existem grupos ou disciplinas diferentes. Por isso, `relatorioId` sozinho não identifica o registro.
+
+A identidade considera os campos definidos pelo módulo em `backend/app/modules/rdo/keys.py`.
+
+O conteúdo mutável é tratado separadamente, permitindo atualizar status ou outros campos sem duplicar o registro.
+
+## Upload direto de arquivos
+
+RDO e RNC usam upload direto para o FastAPI:
 
 ```http
 POST /api/v1/importacoes/{modulo}/arquivos
 Content-Type: multipart/form-data
-Idempotency-Key: <uuid gerado pelo cliente por tentativa de envio>
-
-files: relatorio1.xlsx
-files: relatorio2.csv
+Idempotency-Key: <uuid>
 ```
 
-Formatos aceitos: `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.xltx`, `.xlt`, `.csv`
-(Excel/CSV) e `.pdf` (só IDP, quando migrado). A assinatura real do arquivo
-é validada (magic bytes), não só a extensão — um arquivo corrompido ou
-disfarçado é rejeitado com uma mensagem clara, nunca aceito silenciosamente.
+O backend executa o processamento do arquivo, incluindo:
 
-O FastAPI faz todo o ciclo numa única chamada, dentro de uma transação
-atômica (falha em qualquer etapa desfaz tudo daquele envio):
+1. validação de quantidade e tamanho;
+2. validação da assinatura do arquivo;
+3. leitura do conteúdo;
+4. normalização;
+5. validação dos registros;
+6. deduplicação dentro do envio;
+7. geração de business key/content hash;
+8. bulk upsert no PostgreSQL;
+9. recálculo do módulo;
+10. registro do job, arquivos processados e erros.
 
-1. Cria o `ImportJob` (ou devolve o já existente, se a `Idempotency-Key`
-   já tiver sido usada com sucesso para este módulo).
-2. Lê cada arquivo em uma thread separada (`asyncio.to_thread`), com no
-   máximo `IMPORT_FILE_CONCURRENCY` (padrão 3) em paralelo —
-   `app/modules/imports/parsers/{excel,csv_parser,rdo,rnc}.py`.
-3. Deduplica linhas 100% idênticas entre os arquivos do mesmo envio.
-4. Normaliza cada linha para o shape de entrada do módulo e chama
-   `to_incremental_records()` do módulo — a mesma função usada pelo fluxo
-   antigo, sem alteração: gera business key/content hash.
-5. **Bulk upsert** (`app/modules/imports/bulk_upsert.py`), substituindo o
-   loop linha-a-linha do fluxo antigo: por lote interno de ~750 registros,
-   uma única `SELECT businessKey, contentHash WHERE businessKey = ANY(...)`
-   seguida de um único `INSERT ... ON CONFLICT (businessKey) DO UPDATE`
-   cobrindo todos os inserts+updates do lote (registros ignorados nem
-   entram no `INSERT`).
-6. Recalcula o indicador do módulo **uma única vez**, ao final (não por
-   arquivo nem por lote).
-7. Grava o histórico por arquivo (`ImportFile`) e por erro
-   (`ImportError.fileName` + `rowNumber` + `message`).
+O processamento do envio é transacional: uma falha crítica impede a confirmação parcial indevida daquele envio.
 
-Resposta consolidada:
+### Formatos suportados
 
-```json
-{
-  "importJobId": "uuid",
-  "status": "COMPLETED",
-  "totals": { "found": 1800, "inserted": 1700, "updated": 40, "ignored": 55, "rejected": 5 },
-  "files": [
-    {
-      "fileName": "relatorio1.xlsx",
-      "found": 300,
-      "accepted": 299,
-      "rejected": 1,
-      "errors": [{ "row": 18, "field": "data", "message": "Data inválida." }]
-    }
-  ],
-  "durationMs": 2800
-}
+O backend possui suporte de parsing para formatos Excel/CSV usados pelos módulos que aceitam upload direto. A validação considera também a assinatura real do arquivo, não apenas a extensão.
+
+Os limites de quantidade de arquivos, tamanho individual, tamanho total, número de linhas e concorrência são definidos em `backend/app/core/config.py` e podem ser configurados por variáveis de ambiente.
+
+## Importação em lotes
+
+A API também possui o fluxo de jobs em lotes, usado pelos módulos cujo tratamento atual envia registros normalizados para o backend:
+
+```text
+POST /api/v1/importacoes/iniciar
+POST /api/v1/importacoes/{id}/lotes
+POST /api/v1/importacoes/{id}/finalizar
 ```
 
-Limites (configuráveis via `.env`, ver `backend/app/core/config.py`):
-`MAX_IMPORT_FILES` (padrão 10), `MAX_IMPORT_FILE_SIZE_BYTES` (20 MB),
-`MAX_IMPORT_TOTAL_SIZE_BYTES` (100 MB), `MAX_IMPORT_ROWS_PER_FILE`
-(200.000), `IMPORT_FILE_CONCURRENCY` (3).
+O fluxo funciona assim:
 
-O composable do Nuxt (`frontend/composables/useFileUpload.ts`) só monta um
-`FormData` com os arquivos originais e envia — nenhum parsing acontece no
-navegador para RDO ou RNC.
+1. cria o job de importação;
+2. envia um ou mais lotes numerados;
+3. valida e persiste cada lote;
+4. contabiliza inseridos, atualizados, ignorados e rejeitados;
+5. finaliza o job;
+6. recalcula o módulo.
 
-## Fluxo antigo — 3 chamadas (5S e IDP)
+Esse fluxo faz parte da arquitetura atual da aplicação e continua disponível para os módulos que dependem dele.
 
-1. **Iniciar** — `POST /api/v1/importacoes/iniciar` cria um job de
-   importação para um módulo e devolve `importJobId`.
-2. **Enviar lotes** — o frontend lê o arquivo, normaliza, quebra em lotes
-   (tamanho configurável, `NUXT_PUBLIC_IMPORT_BATCH_SIZE`, padrão 500) e
-   envia cada um para `POST /api/v1/importacoes/{id}/lotes` com o número
-   do lote.
-3. **Processar** — para cada registro do lote, o motor incremental
-   (`app/shared/incremental_upsert.py::process_incremental_batch`) decide
-   inserir/ignorar/atualizar **um registro por vez** (não em lote SQL).
-   Erros de linha são registrados sem abortar o restante do lote.
-4. **Finalizar** — `POST /api/v1/importacoes/{id}/finalizar` marca o job
-   como concluído e recalcula os indicadores do módulo.
+## Resultado da importação
 
-Cada lote devolve um resumo:
+Os jobs registram, conforme o tipo de importação:
 
-| Campo | Significado |
-|---|---|
-| `inserted` | registros novos |
-| `updated` | existiam e tiveram algum campo mutável alterado |
-| `ignored` | idênticos ao que já existia |
-| `rejected` | falharam na validação |
-| `errors[]` | detalhe por linha/business key |
+- total encontrado;
+- total inserido;
+- total atualizado;
+- total ignorado;
+- total rejeitado;
+- arquivos processados;
+- erros por linha/campo;
+- duração e status do processamento.
 
-## Consultando e limpando o histórico
+## Histórico
 
-- `GET /api/v1/importacoes` lista os jobs; `GET /api/v1/importacoes/{id}`
-  traz o detalhe de um job; `GET /api/v1/importacoes/{id}/erros` lista os
-  erros de linha. Válido para os dois fluxos.
-- Para excluir dados administrativos de um módulo, primeiro um `GET
-  /api/v1/<modulo>/registros` retorna a contagem de registros afetados
-  pelo período escolhido (ou pela base inteira), e só depois um `DELETE`
-  no mesmo caminho executa a exclusão. Isso nunca apaga a publicação
-  vigente — apenas os dados administrativos de origem.
+Endpoints principais:
+
+```text
+GET /api/v1/importacoes
+GET /api/v1/importacoes/{id}
+GET /api/v1/importacoes/{id}/erros
+```
+
+A área de Administração exibe esse histórico para os perfis autorizados.
+
+## Exclusão de dados administrativos
+
+Os módulos operacionais expõem rotas de contagem e exclusão dos registros administrativos por período ou escopo permitido.
+
+O padrão é:
+
+```text
+GET    /api/v1/<modulo>/registros
+DELETE /api/v1/<modulo>/registros
+```
+
+A exclusão de registros administrativos não remove automaticamente a publicação vigente. Publicação e base administrativa são conceitos separados.
+
+## Segurança e idempotência
+
+No upload direto, `Idempotency-Key` evita reprocessamento acidental do mesmo envio quando a mesma tentativa é repetida.
+
+No fluxo em lotes, a identificação do job e do número do lote evita processamento duplicado do mesmo lote.
+
+## Onde está a implementação
+
+```text
+backend/app/modules/imports/
+├── bulk_upsert.py
+├── parsers/
+├── registry.py
+├── router.py
+├── schemas.py
+└── service.py
+```
+
+A lógica específica de cada módulo fica no respectivo pacote, em `backend/app/modules/<modulo>/`.
