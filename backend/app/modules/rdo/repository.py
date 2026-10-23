@@ -27,7 +27,7 @@ __all__ = [
     "RdoDelegate",
     "count_records",
     "load_all_records",
-    "load_calculation_rows",
+    "load_calculation_counts",
     "load_detail_rows",
     "load_filter_options",
     "load_last_import",
@@ -95,7 +95,7 @@ class RdoDelegate:
 # `raw` (JSONB, o payload bruto da linha importada) nunca entra no cálculo,
 # só na geração de business key/content hash durante a importação. Evitar
 # trazê-lo aqui corta boa parte do tráfego de rede destas queries (a tabela
-# tem +1800 linhas e cada `raw` pode ter centenas de bytes).
+# real tem ~30 mil linhas e cada `raw` pode ter centenas de bytes).
 _CALCULATION_COLUMNS = (
     RdoRecord.dataReferencia,
     RdoRecord.empresaNome,
@@ -119,7 +119,7 @@ _DETAIL_COLUMNS = (
 
 
 async def load_all_records(session: AsyncSession) -> list[RdoRecord]:
-    """Sem filtro — usado por `recalc_rdo_indicators` e por POST /publicacoes/rdo."""
+    """Sem filtro — usado por `recalc_rdo_indicators`."""
     result = await session.execute(
         select(RdoRecord)
         .options(load_only(*_CALCULATION_COLUMNS))
@@ -128,16 +128,43 @@ async def load_all_records(session: AsyncSession) -> list[RdoRecord]:
     return list(result.scalars().all())
 
 
-async def load_calculation_rows(session: AsyncSession, filters: list[Any]) -> list[RdoRecord]:
+async def load_calculation_counts(
+    session: AsyncSession, filters: list[Any]
+) -> list[tuple[str, int, int, str, int]]:
+    """Agrupa no PostgreSQL as linhas que alimentam o cálculo do RDO.
+
+    O banco real tem ~30 mil registros por semestre. Trazer todas as linhas
+    para o Python custava ~18s no Neon; a agregação reduz a transferência a
+    poucas dezenas de grupos (unidade × mês × status) e mantém o resultado
+    idêntico ao de `compute_rdo_result`.
+    """
+    first_seen = func.min(RdoRecord.dataReferencia).label("primeiraData")
     stmt = (
-        select(RdoRecord)
-        .options(load_only(*_CALCULATION_COLUMNS))
-        .order_by(RdoRecord.dataReferencia.asc(), RdoRecord.empresaNome.asc())
+        select(
+            RdoRecord.empresaNome,
+            RdoRecord.year,
+            RdoRecord.month,
+            RdoRecord.statusDescricao,
+            func.count().label("total"),
+        )
+        .where(RdoRecord.dataReferencia.is_not(None))
+        .group_by(
+            RdoRecord.empresaNome,
+            RdoRecord.year,
+            RdoRecord.month,
+            RdoRecord.statusDescricao,
+        )
+        # Preserva a ordem de primeira ocorrência usada pelo cálculo original
+        # para desempatar unidades com o mesmo volume.
+        .order_by(first_seen.asc(), RdoRecord.empresaNome.asc())
     )
     if filters:
         stmt = stmt.where(*filters)
     result = await session.execute(stmt)
-    return list(result.scalars().all())
+    return [
+        (row.empresaNome, row.year, row.month, row.statusDescricao, row.total)
+        for row in result.all()
+    ]
 
 
 async def load_detail_rows(

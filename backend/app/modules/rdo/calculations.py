@@ -5,6 +5,8 @@ HTML original). Nenhuma função aqui faz I/O — testável isoladamente.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
+
 from app.modules.rdo.types import (
     RDO_DEFAULT_TARGET,
     STATUS_APROVADO,
@@ -18,7 +20,16 @@ from app.modules.rdo.types import (
 from app.shared.period import MONTH_NAMES, PeriodRange, is_within_period_range
 from app.shared.units import format_unit_label, normalize_unit_code
 
-__all__ = ["calculate_rdo_adherence", "compute_rdo_result", "meets_target"]
+__all__ = [
+    "RdoCountedRecord",
+    "calculate_rdo_adherence",
+    "compute_rdo_result",
+    "compute_rdo_result_from_counts",
+    "meets_target",
+]
+
+RdoCountedRecord = tuple[str, int, int, str | None, int]
+"""Linha agregada: empresa, ano, mês (1-based), status e quantidade."""
 
 
 def calculate_rdo_adherence(approved: int, issued: int) -> float:
@@ -44,13 +55,13 @@ def _normalize_excluded(excluded_units: list[str]) -> list[str]:
     return seen
 
 
-def compute_rdo_result(
-    records: list[RdoNormalizedRecord],
-    threshold: float = RDO_DEFAULT_TARGET,
-    excluded_units: list[str] | None = None,
-    period: PeriodRange | None = None,
+def _compute_rdo_result_from_counted(
+    counted_records: Iterable[RdoCountedRecord],
+    threshold: float,
+    excluded_units: list[str] | None,
+    period: PeriodRange | None,
 ) -> RdoResult:
-    """Função pura — mesma assinatura do TypeScript `computeRdoResult`.
+    """Núcleo puro compartilhado entre o caminho por registro e por contagem.
 
     Duas semânticas de "exclusão" distintas e propositalmente preservadas:
     - corte de período: remove a linha de TODAS as tabelas, inclusive por
@@ -69,18 +80,17 @@ def compute_rdo_result(
     total_revisar = 0
     total_preenchendo = 0
 
-    for record in records:
-        status = (record.status_descricao or "").strip()
-        unit = normalize_unit_code(record.empresa_nome)
+    for empresa_nome, year, month1, status_raw, count in counted_records:
+        status = (status_raw or "").strip()
+        unit = normalize_unit_code(empresa_nome)
 
-        # Filtro estrutural: precisa de data válida E unidade normalizada
-        # não-vazia (equivale ao COUNTA da coluna data no HTML original).
-        if record.data_referencia is None or not unit:
+        # Filtro estrutural: precisa de unidade normalizada não-vazia (equivale
+        # ao COUNTA da coluna data no HTML original; a data válida já foi
+        # garantida pela query/geração de `counted_records`).
+        if not unit:
             continue
 
-        year = record.data_referencia.year
-        month0 = record.data_referencia.month - 1  # 0-based, como Date.getMonth()
-        month1 = record.data_referencia.month  # 1-based
+        month0 = month1 - 1  # 0-based, como Date.getMonth()
 
         # Corte de período: descarta a linha inteira, inclusive da tabela por unidade.
         if period is not None and not is_within_period_range(year, month1, period):
@@ -93,25 +103,25 @@ def compute_rdo_result(
                 excluded=unit in exclude_set,
             )
             by_unit[unit] = unit_agg
-        unit_agg.emitidos += 1
+        unit_agg.emitidos += count
         if status == STATUS_APROVADO:
-            unit_agg.aprovados += 1
+            unit_agg.aprovados += count
 
         # Unidade excluída: a partir daqui a linha não entra mais em totais/meses.
         if unit in exclude_set:
             continue
 
-        total_emitidos += 1
+        total_emitidos += count
         if status == STATUS_APROVADO:
-            total_aprovados += 1
+            total_aprovados += count
         elif status == STATUS_REVISAR:
-            total_revisar += 1
+            total_revisar += count
         elif status == STATUS_PREENCHENDO:
-            total_preenchendo += 1
+            total_preenchendo += count
         # Qualquer outro texto de status não incrementa nenhum dos três
         # (Divergência #10) — ainda assim conta em total_emitidos.
 
-        month_key = f"{year}-{month0 + 1:02d}"
+        month_key = f"{year}-{month1:02d}"
         month_agg = by_month.get(month_key)
         if month_agg is None:
             month_agg = RdoMonthAggregate(
@@ -123,9 +133,9 @@ def compute_rdo_result(
                 aderencia=0.0,
             )
             by_month[month_key] = month_agg
-        month_agg.emitidos += 1
+        month_agg.emitidos += count
         if status == STATUS_APROVADO:
-            month_agg.aprovados += 1
+            month_agg.aprovados += count
 
     units = sorted(by_unit.values(), key=lambda u: u.emitidos, reverse=True)
     for unit_agg in units:
@@ -152,3 +162,42 @@ def compute_rdo_result(
         unit_avg=unit_avg,
         months=months,
     )
+
+
+def compute_rdo_result(
+    records: list[RdoNormalizedRecord],
+    threshold: float = RDO_DEFAULT_TARGET,
+    excluded_units: list[str] | None = None,
+    period: PeriodRange | None = None,
+) -> RdoResult:
+    """Função pura — mesma assinatura do TypeScript `computeRdoResult`."""
+
+    def counted_records() -> Iterator[RdoCountedRecord]:
+        for record in records:
+            if record.data_referencia is None:
+                continue
+            yield (
+                record.empresa_nome,
+                record.data_referencia.year,
+                record.data_referencia.month,
+                record.status_descricao,
+                1,
+            )
+
+    return _compute_rdo_result_from_counted(
+        counted_records(), threshold, excluded_units, period
+    )
+
+
+def compute_rdo_result_from_counts(
+    counts: Iterable[RdoCountedRecord],
+    threshold: float = RDO_DEFAULT_TARGET,
+    excluded_units: list[str] | None = None,
+    period: PeriodRange | None = None,
+) -> RdoResult:
+    """Calcula o resultado a partir de contagens agrupadas no PostgreSQL.
+
+    É matematicamente equivalente a `compute_rdo_result`, mas evita transferir
+    dezenas de milhares de linhas do Neon para a aplicação.
+    """
+    return _compute_rdo_result_from_counted(counts, threshold, excluded_units, period)

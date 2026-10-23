@@ -24,12 +24,12 @@ from app.models.common import utcnow
 from app.models.indicators import IndicatorPublication, IndicatorResult
 from app.models.records import RdoRecord
 from app.modules.imports.registry import ModuleDefinition, register_module
-from app.modules.rdo.calculations import compute_rdo_result
+from app.modules.rdo.calculations import compute_rdo_result_from_counts
 from app.modules.rdo.publications import to_rdo_published_payload
 from app.modules.rdo.repository import (
     RdoDelegate,
     count_records,
-    load_calculation_rows,
+    load_calculation_counts,
     load_detail_rows,
     load_filter_options,
     load_last_import,
@@ -69,7 +69,6 @@ from app.modules.rdo.types import (
     RDO_DEFAULT_TARGET,
     RDO_INDICATOR,
     RDO_MODULE,
-    RdoNormalizedRecord,
     RdoResult,
 )
 from app.shared.audit import record_audit
@@ -95,22 +94,6 @@ def _period_from_fields(
         return None
     return normalize_period_range(
         PeriodRange(start_year=start_year, start_month=start_month, end_year=end_year, end_month=end_month)
-    )
-
-
-def _record_to_normalized(r: RdoRecord) -> RdoNormalizedRecord:
-    # `raw` não entra em `compute_rdo_result` — omitido de propósito para não
-    # disparar um lazy-load coluna a coluna (`load_calculation_rows`/
-    # `load_detail_rows` só trazem as colunas usadas aqui, ver repository.py).
-    return RdoNormalizedRecord(
-        data_referencia=r.dataReferencia,
-        empresa_nome=r.empresaNome,
-        status_descricao=r.statusDescricao,
-        relatorio_id=r.relatorioId,
-        grupo=r.grupo,
-        disciplina=r.disciplina,
-        year=r.year,
-        month=r.month,
     )
 
 
@@ -184,36 +167,43 @@ async def get_rdo(
         raw = threshold / 100
         threshold_fraction = min(1.0, max(0.0, raw))
 
-    calculation_rows = await load_calculation_rows(session, filters)
+    # O cálculo é sempre recortado pelo período, mas o detalhamento e o total
+    # continuam refletindo todos os registros que atendem aos demais filtros.
+    calculation_filters = list(filters)
+    if period is not None:
+        calculation_filters.append(
+            period_range_predicate(period, RdoRecord.year, RdoRecord.month)
+        )
+    calculation_counts = await load_calculation_counts(session, calculation_filters)
     if selected_unit:
         # `empresaNome` preserva o texto bruto da planilha (por exemplo,
         # "INPASA DOURADOS", "DRD" ou "Dourados"). Uma igualdade SQL com
         # o rótulo exibido no seletor não encontra todas essas variantes.
         # A comparação canônica mantém o mesmo contrato usado nos cálculos.
-        calculation_rows = [
-            row
-            for row in calculation_rows
-            if normalize_unit_code(row.empresaNome) == selected_unit
+        calculation_counts = [
+            row for row in calculation_counts if normalize_unit_code(row[0]) == selected_unit
         ]
 
-    detail_rows = await load_detail_rows(
-        session, filters, limit=None if selected_unit else 1000
-    )
-    if selected_unit:
-        detail_rows = [
-            row
-            for row in detail_rows
-            if normalize_unit_code(row.empresaNome) == selected_unit
-        ][:1000]
-        total = len(calculation_rows)
-    else:
-        total = await count_records(session, filters)
     filter_options = await load_filter_options(session)
+    if selected_unit:
+        raw_unit_names = sorted(
+            {row[0] for row in filter_options if normalize_unit_code(row[0]) == selected_unit}
+        )
+        detail_rows = await load_detail_rows(
+            session,
+            [*filters, RdoRecord.empresaNome.in_(raw_unit_names)],
+            limit=1000,
+        )
+        total = sum(row[4] for row in calculation_counts)
+    else:
+        detail_rows = await load_detail_rows(session, filters, limit=1000)
+        total = await count_records(session, filters)
     last_import = await load_last_import(session)
     configuration = await load_rdo_configuration(session)
 
-    records = [_record_to_normalized(r) for r in calculation_rows]
-    result = compute_rdo_result(records, threshold_fraction, configuration.excluded_units, period)
+    result = compute_rdo_result_from_counts(
+        calculation_counts, threshold_fraction, configuration.excluded_units, period
+    )
 
     return RdoGetOut(
         total=total,
@@ -436,19 +426,25 @@ async def post_publicacoes_rdo(
 
     threshold_fraction = body.threshold / 100
 
-    rows = await load_calculation_rows(session, [])
-    if not rows:
+    period = _period_from_fields(
+        body.period_start_year, body.period_start_month, body.period_end_year, body.period_end_month
+    )
+    period_filters = (
+        [period_range_predicate(period, RdoRecord.year, RdoRecord.month)]
+        if period is not None
+        else []
+    )
+    counts = await load_calculation_counts(session, period_filters)
+    if not counts:
         raise DomainError("Não há registros de RDO para publicar.")
 
     configuration = await load_rdo_configuration(session)
 
-    period = _period_from_fields(
-        body.period_start_year, body.period_start_month, body.period_end_year, body.period_end_month
-    )
     cycle = resolve_publication_cycle(period)
 
-    records = [_record_to_normalized(r) for r in rows]
-    result = compute_rdo_result(records, threshold_fraction, configuration.excluded_units, period)
+    result = compute_rdo_result_from_counts(
+        counts, threshold_fraction, configuration.excluded_units, period
+    )
     if result.total_emitidos <= 0:
         raise DomainError("Não há RDO emitido para calcular e publicar a aprovação.")
 

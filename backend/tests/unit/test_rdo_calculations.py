@@ -6,8 +6,14 @@ from datetime import datetime
 
 import pytest
 
-from app.modules.rdo.calculations import calculate_rdo_adherence, compute_rdo_result, meets_target
+from app.modules.rdo.calculations import (
+    calculate_rdo_adherence,
+    compute_rdo_result,
+    compute_rdo_result_from_counts,
+    meets_target,
+)
 from app.modules.rdo.types import RDO_DEFAULT_TARGET, RdoNormalizedRecord
+from app.shared.period import PeriodRange
 
 
 def _rec(
@@ -97,3 +103,27 @@ def test_other_status_text_does_not_increment_breakdowns() -> None:
     assert result.total_aprovados == 0
     assert result.total_revisar == 0
     assert result.total_preenchendo == 0
+
+
+def test_counts_path_matches_records_path() -> None:
+    records = [
+        _rec("A", "Aprovado", month=1),
+        _rec("A", "Revisar Relatório", month=2),
+        _rec("A", "Aprovado", month=2),
+        _rec("B", "Preenchendo Relatório", month=1),
+        _rec("B", "Aprovado", month=3),
+        _rec("Ignorada", "Aprovado", month=1),
+    ]
+    counts = [
+        ("A", 2026, 1, "Aprovado", 1),
+        ("A", 2026, 2, "Revisar Relatório", 1),
+        ("A", 2026, 2, "Aprovado", 1),
+        ("B", 2026, 1, "Preenchendo Relatório", 1),
+        ("B", 2026, 3, "Aprovado", 1),
+        ("Ignorada", 2026, 1, "Aprovado", 1),
+    ]
+    period = PeriodRange(start_year=2026, start_month=1, end_year=2026, end_month=2)
+
+    assert compute_rdo_result_from_counts(
+        counts, 0.8, ["Ignorada"], period
+    ) == compute_rdo_result(records, 0.8, ["Ignorada"], period)
