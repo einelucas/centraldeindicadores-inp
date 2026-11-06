@@ -1,0 +1,74 @@
+# Render Blueprint - Central de Indicadores (homologação)
+# Docs: https://render.com/docs/blueprint-spec
+
+databases:
+  - name: central-indicadores-db
+    plan: free
+    databaseName: central_indicadores_db
+    user: central_indicadores_db_user
+    postgresMajorVersion: 16
+
+services:
+  - type: web
+    name: central-indicadores-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    region: oregon
+    buildCommand: pip install .
+    startCommand: python -m alembic upgrade head && python scripts/seed.py && python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health/live
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.0"
+      - key: APP_ENV
+        value: development
+      - key: ALLOW_TEST_DB_MIGRATIONS
+        value: "true"
+      - key: DEV_AUTH_ENABLED
+        value: "true"
+      - key: DEV_AUTH_USER_EMAIL
+        value: dev@example.com
+      - key: DEV_AUTH_USER_ROLE
+        value: ADMIN
+      - key: CORS_ORIGINS
+        value: https://central-indicadores-frontend.onrender.com
+      - key: LOG_LEVEL
+        value: INFO
+      - key: SEED_TEST_DATA
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: central-indicadores-db
+          property: connectionString
+      - key: MIGRATION_DATABASE_URL
+        fromDatabase:
+          name: central-indicadores-db
+          property: connectionString
+
+  - type: web
+    name: central-indicadores-frontend
+    runtime: node
+    rootDir: frontend
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build
+    startCommand: node .output/server/index.mjs
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20.19.0"
+      - key: NUXT_PUBLIC_API_BASE_URL
+        value: https://central-indicadores-api.onrender.com/api/v1
+      - key: NUXT_PUBLIC_DEV_AUTH_ENABLED
+        value: "true"
+      - key: NUXT_PUBLIC_OIDC_ISSUER
+        value: ""
+      - key: NUXT_PUBLIC_OIDC_CLIENT_ID
+        value: ""
+      - key: NUXT_PUBLIC_OIDC_REDIRECT_URI
+        value: https://central-indicadores-frontend.onrender.com/auth/callback
+      - key: NUXT_PUBLIC_OIDC_POST_LOGOUT_REDIRECT_URI
+        value: https://central-indicadores-frontend.onrender.com/login
