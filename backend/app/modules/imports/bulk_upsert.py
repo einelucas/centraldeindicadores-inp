@@ -69,6 +69,15 @@ async def bulk_upsert(
 
     for offset in range(0, len(records), chunk_size):
         chunk = records[offset : offset + chunk_size]
+        # Deduplica business keys dentro do mesmo chunk: o Postgres rejeita
+        # `INSERT ... ON CONFLICT DO UPDATE` quando o mesmo índice de conflito
+        # aparece mais de uma vez no mesmo comando ("cannot affect row a
+        # second time"). Mantém a última ocorrência de cada chave (a mais
+        # recente do arquivo), preservando a classificação posterior.
+        deduped: dict[str, IncrementalRecord] = {}
+        for record in chunk:
+            deduped[record.business_key] = record
+        chunk = list(deduped.values())
         keys = [record.business_key for record in chunk]
 
         existing = await session.execute(
